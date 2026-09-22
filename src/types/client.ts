@@ -1,10 +1,10 @@
-﻿export interface Client {
-  id: number;
+export interface Client {
+  id: string;
   nom: string;
+  postnom?: string;
   prenom: string;
   telephone: string;
   email?: string;
   adresse?: string;
-  ville?: string;
-  createdAt?: string;
+  created_at?: string;
 }

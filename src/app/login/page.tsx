@@ -1,176 +1,163 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { setToken } from "@/lib/auth";
-import { api } from "@/lib/api";
-import { z } from "zod";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-
-const schema = z.object({
-  username: z.string().min(1, "Le nom d'utilisateur est obligatoire"),
-  password: z.string().min(1, "Le mot de passe est obligatoire"),
-});
-
-type Form = z.infer<typeof schema>;
+import api from "@/lib/api";
+import { API_ROUTES } from "@/lib/api-routes";
 
 export default function LoginPage() {
-  const [loading, setLoading] = useState(false);
-
   const router = useRouter();
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-  } = useForm<Form>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      username: "",
-      password: "",
-    },
+  const [credentials, setCredentials] = useState({
+    username: "",
+    password: "",
   });
 
-  async function onSubmit(values: Form) {
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    setError(null);
     setLoading(true);
 
     try {
-      console.log("Tentative de connexion...");
+      const res = await api.post(API_ROUTES.AUTH.LOGIN, {
+        username: credentials.username,
+        password: credentials.password,
+      });
 
-      const res = await api.post("/auth/token/", values);
+      // Stockage des jetons SimpleJWT de Django
+      if (res.data.access) {
+        localStorage.setItem("access_token", res.data.access);
 
-      console.log("Réponse du serveur :", res.data);
+        if (res.data.refresh) {
+          localStorage.setItem("refresh_token", res.data.refresh);
+        }
 
-      const { access, refresh } = res.data;
-
-      if (!access) {
-        console.error(
-          "Aucun access token reçu depuis Django.",
-          res.data
+        router.push("/dashboard");
+      } else {
+        setError(
+          "Réponse du serveur invalide (jeton manquant)."
         );
-
-        alert(
-          "La connexion a échoué : aucun token d'accès n'a été reçu."
-        );
-
-        return;
       }
+    } catch (err: any) {
+      console.error("Erreur de connexion :", err);
 
-      console.log("Access token reçu : OUI");
-      console.log("Refresh token reçu :", !!refresh);
-
-      setToken(access, refresh);
-
-      // Vérification locale après l'enregistrement
-      const savedToken = localStorage.getItem("access_token");
-
-      console.log(
-        "Access token enregistré dans Local Storage :",
-        !!savedToken
-      );
-
-      if (!savedToken) {
-        console.error(
-          "Le token a été reçu mais n'a pas pu être enregistré dans Local Storage."
+      if (err.response?.status === 401) {
+        setError(
+          "Nom d'utilisateur ou mot de passe incorrect."
         );
-
-        alert(
-          "Le token a été reçu mais n'a pas été enregistré."
+      } else {
+        setError(
+          "Impossible de se connecter au serveur. Vérifiez votre connexion."
         );
-
-        return;
       }
-
-      console.log("Connexion réussie.");
-
-      router.push("/dashboard");
-      router.refresh();
-    } catch (e: any) {
-      console.error("Erreur login :", e);
-
-      const message =
-        e?.response?.data?.detail ||
-        e?.response?.data?.message ||
-        e?.response?.data?.error ||
-        "Erreur de connexion";
-
-      alert(message);
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6">
-      <Card className="w-full max-w-md bg-white/5 border-white/10">
-        <CardHeader>
-          <CardTitle className="text-xl">
-            Connexion
-          </CardTitle>
-        </CardHeader>
+    <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
+      <div className="w-full max-w-md bg-white rounded-lg shadow-md p-8 space-y-6">
 
-        <CardContent>
-          <form
-            onSubmit={handleSubmit(onSubmit)}
-            className="space-y-4"
-          >
-            {/* Nom d'utilisateur */}
-            <div>
-              <Input
-                placeholder="Nom d'utilisateur"
-                autoComplete="username"
-                {...register("username")}
-                className="bg-white/5 border-white/10 text-white"
-              />
+        {/* En-tête */}
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-800">
+            La Casa Da Festa Elisabeth
+          </h1>
 
-              {errors.username && (
-                <p className="text-red-400 text-sm mt-1">
-                  {errors.username.message}
-                </p>
-              )}
-            </div>
+          <p className="text-sm text-gray-500 mt-2">
+            Connexion à l'application Elisabeth
+          </p>
+        </div>
 
-            {/* Mot de passe */}
-            <div>
-              <Input
-                placeholder="Mot de passe"
-                type="password"
-                autoComplete="current-password"
-                {...register("password")}
-                className="bg-white/5 border-white/10 text-white"
-              />
+        {/* Message d'erreur */}
+        {error && (
+          <div className="p-3 bg-red-100 border border-red-300 text-red-700 text-sm rounded-md">
+            {error}
+          </div>
+        )}
 
-              {errors.password && (
-                <p className="text-red-400 text-sm mt-1">
-                  {errors.password.message}
-                </p>
-              )}
-            </div>
-
-            {/* Bouton */}
-            <Button
-              type="submit"
-              disabled={loading}
-              className="w-full"
+        {/* Formulaire */}
+        <form
+          onSubmit={handleSubmit}
+          className="space-y-4"
+        >
+          {/* Nom d'utilisateur */}
+          <div>
+            <label
+              htmlFor="username"
+              className="block text-sm font-medium text-gray-700"
             >
-              {loading
-                ? "Connexion..."
-                : "Se connecter"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+              Nom d'utilisateur
+            </label>
+
+            <input
+              id="username"
+              type="text"
+              required
+              autoComplete="username"
+              disabled={loading}
+              value={credentials.username}
+              onChange={(e) =>
+                setCredentials({
+                  ...credentials,
+                  username: e.target.value,
+                })
+              }
+              className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md
+                         focus:outline-none focus:ring-2 focus:ring-blue-500
+                         disabled:bg-gray-100 disabled:cursor-not-allowed"
+            />
+          </div>
+
+          {/* Mot de passe */}
+          <div>
+            <label
+              htmlFor="password"
+              className="block text-sm font-medium text-gray-700"
+            >
+              Mot de passe
+            </label>
+
+            <input
+              id="password"
+              type="password"
+              required
+              autoComplete="current-password"
+              disabled={loading}
+              value={credentials.password}
+              onChange={(e) =>
+                setCredentials({
+                  ...credentials,
+                  password: e.target.value,
+                })
+              }
+              className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md
+                         focus:outline-none focus:ring-2 focus:ring-blue-500
+                         disabled:bg-gray-100 disabled:cursor-not-allowed"
+            />
+          </div>
+
+          {/* Bouton */}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-2.5 bg-blue-600 hover:bg-blue-700
+                       text-white font-semibold rounded-md
+                       transition duration-200
+                       disabled:opacity-50
+                       disabled:cursor-not-allowed"
+          >
+            {loading
+              ? "Connexion en cours..."
+              : "Se connecter"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
-

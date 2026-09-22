@@ -1,88 +1,51 @@
-﻿import { createSlice, PayloadAction } from "@reduxjs/toolkit";
-
-export interface Reservation {
-  id: number;
-  clientId: number;
-  salleId: number;
-  dateDebut: string;
-  dateFin: string;
-  nombreInvites: number;
-  statut: string;
-  montantTotal?: number;
-}
+import { createSlice, PayloadAction } from "@reduxjs/toolkit";
+import { Reservation } from "@/types/reservation";
 
 interface ReservationState {
   reservations: Reservation[];
   selectedReservation: Reservation | null;
   loading: boolean;
+  error: string | null;
 }
 
 const initialState: ReservationState = {
   reservations: [],
   selectedReservation: null,
   loading: false,
+  error: null,
 };
 
 const reservationSlice = createSlice({
   name: "reservations",
   initialState,
   reducers: {
-    setReservations: (
-      state,
-      action: PayloadAction<Reservation[]>
-    ) => {
+    setReservations(state, action: PayloadAction<Reservation[]>) {
       state.reservations = action.payload;
     },
-
-    addReservation: (
-      state,
-      action: PayloadAction<Reservation>
-    ) => {
-      state.reservations.push(action.payload);
-    },
-
-    updateReservation: (
-      state,
-      action: PayloadAction<Reservation>
-    ) => {
-      const index = state.reservations.findIndex(
-        (reservation) => reservation.id === action.payload.id
-      );
-
+    updateReservationFinancials(
+      state, 
+      action: PayloadAction<{ 
+        id: string; 
+        paid_amount: number; 
+        remaining_amount: number; 
+        payment_status: "NON_PAYE" | "PARTIEL" | "PAYE" 
+      }>
+    ) {
+      const { id, paid_amount, remaining_amount, payment_status } = action.payload;
+      const index = state.reservations.findIndex((r) => r.id === id);
       if (index !== -1) {
-        state.reservations[index] = action.payload;
+        state.reservations[index].paid_amount = paid_amount;
+        state.reservations[index].remaining_amount = remaining_amount;
+        state.reservations[index].payment_status = payment_status;
       }
-    },
-
-    removeReservation: (
-      state,
-      action: PayloadAction<number>
-    ) => {
-      state.reservations = state.reservations.filter(
-        (reservation) => reservation.id !== action.payload
-      );
-    },
-
-    setSelectedReservation: (
-      state,
-      action: PayloadAction<Reservation | null>
-    ) => {
-      state.selectedReservation = action.payload;
-    },
-
-    setLoading: (state, action: PayloadAction<boolean>) => {
-      state.loading = action.payload;
+      if (state.selectedReservation && state.selectedReservation.id === id) {
+        state.selectedReservation.paid_amount = paid_amount;
+        state.selectedReservation.remaining_amount = remaining_amount;
+        state.selectedReservation.payment_status = payment_status;
+      }
     },
   },
 });
 
-export const {
-  setReservations,
-  addReservation,
-  updateReservation,
-  removeReservation,
-  setSelectedReservation,
-  setLoading,
-} = reservationSlice.actions;
-
+export const { setReservations, updateReservationFinancials } = reservationSlice.actions;
 export default reservationSlice.reducer;

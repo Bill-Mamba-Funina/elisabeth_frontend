@@ -1,10 +1,14 @@
-﻿export interface Paiement {
-  id: number;
-  reservationId: number;
-  clientId?: number;
+export type ModePaiement = "ESPECES" | "VIREMENT_BANCAIRE" | "MOBILE_MONEY" | "CARTE" | "CHEQUE" | "AUTRE";
+
+export interface Paiement {
+  id: string;
+  reservation: string;
   montant: number;
-  modePaiement: string;
-  datePaiement: string;
+  mode_paiement: ModePaiement;
+  compte_financier: string;
+  compte_financier_nom?: string;
   reference?: string;
-  statut?: string;
+  date_paiement: string;
+  utilisateur?: string;
+  notes?: string;
 }

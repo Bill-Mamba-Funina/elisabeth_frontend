@@ -1,11 +1,17 @@
-﻿import { z } from "zod";
+import { z } from "zod";
 
 export const paiementSchema = z.object({
-  reservationId: z.coerce.number().positive(),
-  montant: z.coerce.number().positive("Le montant doit être supérieur à 0"),
-  modePaiement: z.string().min(1, "Le mode de paiement est obligatoire"),
-  datePaiement: z.string().min(1, "La date est obligatoire"),
+  reservation_id: z.string().min(1, "La rservation est requise"),
+  montant: z.number().positive("Le montant doit tre suprieur  0"),
+  mode_paiement: z.enum([
+    "ESPECES", 
+    "VIREMENT_BANCAIRE", 
+    "MOBILE_MONEY", 
+    "CARTE", 
+    "CHEQUE", 
+    "AUTRE"
+  ]),
+  compte_financier_id: z.string().min(1, "Le compte financier est requis"),
   reference: z.string().optional(),
+  notes: z.string().optional(),
 });
-
-export type PaiementFormData = z.infer<typeof paiementSchema>;
