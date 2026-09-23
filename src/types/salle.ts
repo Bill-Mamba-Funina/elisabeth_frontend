@@ -1,11 +1,20 @@
 ﻿export interface Salle {
   id: number;
-  nom: string;
-  description?: string;
-  capacite: number;
-  prix?: number;
-  adresse?: string;
-  disponible?: boolean;
-  statut?: string;
-  image?: string;
+  name: string;
+  description?: string | null;
+  capacity: number;
+  price: number | string;
+  image?: string | null;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SalleFormData {
+  name: string;
+  description: string;
+  capacity: number;
+  price: number;
+  is_active: boolean;
+  image?: File | null;
 }

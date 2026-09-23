@@ -1,76 +1,36 @@
-export const API_ROUTES = {
-  // ============================================================
-  // AUTHENTIFICATION
-  // ============================================================
-
+﻿export const API_ROUTES = {
   AUTH: {
     LOGIN: "/auth/token/",
     REFRESH: "/auth/refresh/",
-    ME: "/auth/users/me/",
   },
 
-  // ============================================================
-  // DASHBOARD
-  // ============================================================
-
-  DASHBOARD: {
-    SUMMARY: "/dashboard/",
-  },
-
-  // ============================================================
-  // CLIENTS
-  // ============================================================
-
-  CLIENTS: "/clients/",
-
-  // ============================================================
-  // SALLES
-  // ============================================================
-
-  SALLES: "/halls/",
-
-  // ============================================================
-  // SERVICES
-  // ============================================================
-
+  CLIENTS: "/clients/",`r`n  ACCOUNTS: "/accounts/",
+  HALLS: "/halls/",
   SERVICES: "/services/",
-
-  // ============================================================
-  // MATÉRIEL
-  // ============================================================
-
-  MATERIELS: "/materials/",
-
-  // ============================================================
-  // RÉSERVATIONS
-  // ============================================================
+  MATERIALS: "/materials/",
 
   RESERVATIONS: "/reservations/",
-
   RESERVATION_SERVICES: "/reservation-services/",
+  RESERVATION_MATERIALS: "/reservation-materials/",
 
-  RESERVATION_MATERIELS: "/reservation-materials/",
-
-  // ============================================================
-  // FINANCES
-  // ============================================================
+  PAYMENTS: "/payments/",
+  EXPENSES: "/expenses/",
+  CASH_MOVEMENTS: "/cash-movements/",
 
   FINANCES: {
-    COMPTES: "/accounts/",
     PAIEMENTS: "/payments/",
-    MOUVEMENTS: "/cash-movements/",
     DEPENSES: "/expenses/",
+    MOUVEMENTS: "/cash-movements/",
   },
 
-  // ============================================================
-  // CONTRATS
-  // ============================================================
+  PERSONNEL: "/personnel/",
 
-  CONTRATS: "/contracts/",
+  DASHBOARD: "/dashboard/",
 
-  // ============================================================
-  // NOTIFICATIONS
-  // ============================================================
+  CALENDAR: "/calendar",
 
   NOTIFICATIONS: "/notifications/",
-};
+  DOCUMENTS: "/documents/",
+  RAPPORTS: "/rapports/",
+} as const;
+

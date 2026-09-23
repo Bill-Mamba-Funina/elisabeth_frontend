@@ -1,73 +1,67 @@
-"use client";
+﻿"use client";
 
-import React, { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { reservationSchema } from "@/lib/validations/reservation";
-import { z } from "zod";
+import { FormEvent, useEffect, useState } from "react";
 import api from "@/lib/api";
 import { API_ROUTES } from "@/lib/api-routes";
-import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 
-type ReservationFormData = z.infer<typeof reservationSchema>;
-
-type Client = {
+interface Client {
   id: number;
-  full_name?: string;
-  phone?: string;
-  email?: string;
-};
+  full_name: string;
+}
 
-type Hall = {
+interface Hall {
   id: number;
   name: string;
-};
+  price: number | string;
+  capacity: number;
+}
 
 interface ReservationFormProps {
-  onSubmitSuccess?: () => void;
+  onSubmitSuccess?: (reservation: any) => void;
 }
 
 export default function ReservationForm({
   onSubmitSuccess,
 }: ReservationFormProps) {
-  const [clientMode, setClientMode] = useState<"EXISTING" | "NEW">(
-    "EXISTING"
-  );
-
   const [clients, setClients] = useState<Client[]>([]);
   const [halls, setHalls] = useState<Hall[]>([]);
 
-  const [loadingData, setLoadingData] = useState(true);
-  const [serverError, setServerError] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+  const [clientMode, setClientMode] = useState<
+    "existing" | "new"
+  >("existing");
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors, isSubmitting },
-  } = useForm<ReservationFormData>({
-    resolver: zodResolver(reservationSchema),
+  const [form, setForm] = useState({
+    client: "",
+    full_name: "",
+    phone: "",
+    email: "",
+    address: "",
 
-    defaultValues: {
-      type_evenement: "Mariage",
-    },
+    hall: "",
+    event_type: "",
+    event_date: "",
+    start_time: "",
+    end_time: "",
+    guest_count: 1,
+    description: "",
+    observations: "",
+    total_amount: "",
   });
 
-  // ============================================================
-  // CHARGEMENT CLIENTS + SALLES
-  // ============================================================
+  const [loading, setLoading] = useState(false);
+  const [loadingData, setLoadingData] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    const loadData = async () => {
+    async function loadData() {
       try {
         setLoadingData(true);
-        setServerError("");
 
-        const [clientsResponse, hallsResponse] = await Promise.all([
-          api.get(API_ROUTES.CLIENTS),
-          api.get(API_ROUTES.SALLES),
-        ]);
+        const [clientsResponse, hallsResponse] =
+          await Promise.all([
+            api.get(`${API_ROUTES.CLIENTS}?page_size=1000`),
+            api.get(`${API_ROUTES.HALLS}?page_size=1000`),
+          ]);
 
         const clientsData = clientsResponse.data;
         const hallsData = hallsResponse.data;
@@ -75,73 +69,83 @@ export default function ReservationForm({
         setClients(
           Array.isArray(clientsData)
             ? clientsData
-            : Array.isArray(clientsData?.results)
-              ? clientsData.results
-              : []
+            : clientsData?.results || []
         );
 
         setHalls(
           Array.isArray(hallsData)
             ? hallsData
-            : Array.isArray(hallsData?.results)
-              ? hallsData.results
-              : []
+            : hallsData?.results || []
         );
       } catch (error: any) {
-        console.error(
-          "Erreur chargement clients/salles :",
-          error
-        );
+        console.error(error);
 
-        setServerError(
+        setError(
           error?.response?.data?.detail ||
             "Impossible de charger les clients et les salles."
         );
       } finally {
         setLoadingData(false);
       }
-    };
+    }
 
     loadData();
   }, []);
 
-  // ============================================================
-  // SOUMISSION
-  // ============================================================
+  function updateField(
+    field: keyof typeof form,
+    value: string | number
+  ) {
+    setForm((previous) => ({
+      ...previous,
+      [field]: value,
+    }));
+  }
 
-  const onSubmit = async (data: ReservationFormData) => {
+  function handleHallChange(value: string) {
+    const hall = halls.find(
+      (item) => String(item.id) === value
+    );
+
+    setForm((previous) => ({
+      ...previous,
+      hall: value,
+      total_amount: hall
+        ? String(hall.price)
+        : previous.total_amount,
+    }));
+  }
+
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
     try {
-      setServerError("");
-      setSuccessMessage("");
+      setLoading(true);
+      setError("");
 
-      let clientId: number | string | undefined;
+      let clientId = Number(form.client);
 
-      // ----------------------------------------------------------
-      // 1. CLIENT EXISTANT
-      // ----------------------------------------------------------
+      // ------------------------------------------------------
+      // Création automatique du client si nécessaire
+      // ------------------------------------------------------
 
-      if (clientMode === "EXISTING") {
-        clientId = data.client_id;
-      }
-
-      // ----------------------------------------------------------
-      // 2. NOUVEAU CLIENT
-      // ----------------------------------------------------------
-
-      if (clientMode === "NEW") {
-        const nouveauClient = {
-          full_name: `${data.nouveau_client?.prenom || ""} ${
-            data.nouveau_client?.nom || ""
-          }`.trim(),
-
-          phone: data.nouveau_client?.telephone,
-
-          email: data.nouveau_client?.email || "",
-        };
+      if (clientMode === "new") {
+        if (!form.full_name || !form.phone) {
+          throw new Error(
+            "Le nom et le téléphone du nouveau client sont obligatoires."
+          );
+        }
 
         const clientResponse = await api.post(
           API_ROUTES.CLIENTS,
-          nouveauClient
+          {
+            full_name: form.full_name,
+            phone: form.phone,
+            email: form.email || null,
+            address: form.address || null,
+          }
         );
 
         clientId = clientResponse.data.id;
@@ -153,177 +157,93 @@ export default function ReservationForm({
         );
       }
 
-      // ----------------------------------------------------------
-      // 3. CONSTRUCTION DU PAYLOAD DJANGO
-      // ----------------------------------------------------------
+      if (!form.hall) {
+        throw new Error(
+          "Veuillez sélectionner une salle."
+        );
+      }
 
-      const reservationPayload = {
-        client: clientId,
-
-        hall: data.salle_id,
-
-        event_type: data.type_evenement,
-
-        event_date: data.date_evenement,
-
-        start_time: data.heure_debut,
-
-        end_time: data.heure_fin,
-
-        number_of_guests: data.nombre_invites,
-
-        total_amount: data.total_amount,
-      };
-
-      console.log(
-        "POST /api/reservations/",
-        reservationPayload
-      );
-
-      // ----------------------------------------------------------
-      // 4. ENVOI À DJANGO
-      // ----------------------------------------------------------
-
-      const response = await api.post(
+      const reservationResponse = await api.post(
         API_ROUTES.RESERVATIONS,
-        reservationPayload
+        {
+          client: clientId,
+          hall: Number(form.hall),
+
+          event_type: form.event_type,
+          event_date: form.event_date,
+          start_time: form.start_time,
+          end_time: form.end_time,
+
+          guest_count: Number(form.guest_count),
+
+          description: form.description || null,
+          observations: form.observations || null,
+
+          total_amount: Number(form.total_amount || 0),
+        }
       );
 
-      console.log(
-        "Réservation créée :",
-        response.data
-      );
-
-      // ----------------------------------------------------------
-      // 5. SUCCÈS
-      // ----------------------------------------------------------
-
-      setSuccessMessage(
-        "La réservation a été créée avec succès."
-      );
-
-      reset();
-
-      onSubmitSuccess?.();
+      if (onSubmitSuccess) {
+        onSubmitSuccess(reservationResponse.data);
+      }
     } catch (error: any) {
-      console.error(
-        "Erreur lors de la création de la réservation :",
-        error
-      );
+      console.error(error);
 
-      const data = error?.response?.data;
+      const backendError = error?.response?.data;
 
-      // Erreur Django détaillée
-      if (data && typeof data === "object") {
-        const messages = Object.entries(data)
-          .map(([field, value]) => {
-            const message = Array.isArray(value)
-              ? value.join(", ")
-              : String(value);
-
-            return `${field} : ${message}`;
-          })
-          .join(" | ");
-
-        setServerError(
-          messages || "Erreur lors de la création."
+      if (backendError) {
+        setError(
+          typeof backendError === "string"
+            ? backendError
+            : JSON.stringify(
+                backendError,
+                null,
+                2
+              )
         );
       } else {
-        setServerError(
+        setError(
           error?.message ||
             "Impossible de créer la réservation."
         );
       }
+    } finally {
+      setLoading(false);
     }
-  };
+  }
 
-  // ============================================================
-  // AFFICHAGE
-  // ============================================================
+  if (loadingData) {
+    return (
+      <div className="rounded-xl border bg-white p-8 text-gray-700">
+        Chargement des clients et des salles...
+      </div>
+    );
+  }
 
   return (
     <form
-      onSubmit={handleSubmit(onSubmit)}
-      className="space-y-6 rounded-xl border bg-white p-6 shadow-sm"
+      onSubmit={handleSubmit}
+      className="space-y-8 rounded-xl border bg-white p-6 text-gray-900 shadow-sm"
     >
-      {/* ========================================================
-          EN-TÊTE
-      ======================================================== */}
+      {error && (
+        <pre className="whitespace-pre-wrap rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {error}
+        </pre>
+      )}
 
-      <div className="border-b pb-3">
-        <h2 className="text-xl font-bold text-gray-800">
-          Nouvelle réservation
+      <section>
+        <h2 className="mb-4 text-lg font-semibold">
+          1. Client
         </h2>
 
-        <p className="mt-1 text-sm text-gray-500">
-          Enregistrez une nouvelle réservation de salle.
-        </p>
-      </div>
-
-      {/* ========================================================
-          CHARGEMENT
-      ======================================================== */}
-
-      {loadingData && (
-        <div className="flex items-center gap-2 rounded-lg border bg-gray-50 p-4 text-sm text-gray-600">
-          <Loader2 className="h-5 w-5 animate-spin" />
-
-          Chargement des clients et des salles...
-        </div>
-      )}
-
-      {/* ========================================================
-          ERREUR
-      ======================================================== */}
-
-      {serverError && (
-        <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
-
-          <div>
-            <p className="font-semibold">
-              Impossible d'enregistrer la réservation
-            </p>
-
-            <p className="mt-1">
-              {serverError}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================
-          SUCCÈS
-      ======================================================== */}
-
-      {successMessage && (
-        <div className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-700">
-          <CheckCircle2 className="h-5 w-5" />
-
-          {successMessage}
-        </div>
-      )}
-
-      {/* ========================================================
-          1. CLIENT
-      ======================================================== */}
-
-      <section className="space-y-4">
-        <h3 className="text-md font-semibold text-gray-700">
-          1. Client
-        </h3>
-
-        <div className="flex flex-wrap gap-2">
+        <div className="mb-5 flex gap-2">
           <button
             type="button"
-            onClick={() => {
-              setClientMode("EXISTING");
-              setServerError("");
-            }}
-            className={`rounded-md px-3 py-2 text-sm font-medium ${
-              clientMode === "EXISTING"
+            onClick={() => setClientMode("existing")}
+            className={`rounded-lg px-4 py-2 text-sm ${
+              clientMode === "existing"
                 ? "bg-blue-600 text-white"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                : "border bg-white"
             }`}
           >
             Client existant
@@ -331,362 +251,255 @@ export default function ReservationForm({
 
           <button
             type="button"
-            onClick={() => {
-              setClientMode("NEW");
-              setServerError("");
-            }}
-            className={`rounded-md px-3 py-2 text-sm font-medium ${
-              clientMode === "NEW"
+            onClick={() => setClientMode("new")}
+            className={`rounded-lg px-4 py-2 text-sm ${
+              clientMode === "new"
                 ? "bg-blue-600 text-white"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                : "border bg-white"
             }`}
           >
             Nouveau client
           </button>
         </div>
 
-        {/* ======================================================
-            CLIENT EXISTANT
-        ====================================================== */}
+        {clientMode === "existing" ? (
+          <select
+            required
+            value={form.client}
+            onChange={(e) =>
+              updateField("client", e.target.value)
+            }
+            className="w-full rounded-lg border px-4 py-3"
+          >
+            <option value="">
+              Sélectionner un client
+            </option>
 
-        {clientMode === "EXISTING" && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Client *
-            </label>
-
-            <select
-              {...register("client_id")}
-              disabled={loadingData}
-              className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100"
-            >
-              <option value="">
-                Sélectionner un client
+            {clients.map((client) => (
+              <option
+                key={client.id}
+                value={client.id}
+              >
+                {client.full_name}
               </option>
+            ))}
+          </select>
+        ) : (
+          <div className="space-y-4">
+            <input
+              required
+              value={form.full_name}
+              onChange={(e) =>
+                updateField(
+                  "full_name",
+                  e.target.value
+                )
+              }
+              placeholder="Nom complet"
+              className="w-full rounded-lg border px-4 py-3"
+            />
 
-              {clients.map((client) => (
-                <option
-                  key={client.id}
-                  value={client.id}
-                >
-                  {client.full_name ||
-                    `Client #${client.id}`}
-                  {client.phone
-                    ? ` — ${client.phone}`
-                    : ""}
-                </option>
-              ))}
-            </select>
-
-            {errors.client_id && (
-              <p className="mt-1 text-xs text-red-600">
-                {errors.client_id.message}
-              </p>
-            )}
-
-            {clients.length === 0 &&
-              !loadingData && (
-                <p className="mt-2 text-xs text-amber-600">
-                  Aucun client enregistré. Utilisez
-                  « Nouveau client ».
-                </p>
-              )}
-          </div>
-        )}
-
-        {/* ======================================================
-            NOUVEAU CLIENT
-        ====================================================== */}
-
-        {clientMode === "NEW" && (
-          <div className="grid grid-cols-1 gap-3 rounded-lg border bg-gray-50 p-4 md:grid-cols-2">
-            <div>
-              <label className="block text-xs font-medium text-gray-700">
-                Nom *
-              </label>
-
+            <div className="grid gap-4 md:grid-cols-2">
               <input
-                {...register(
-                  "nouveau_client.nom"
-                )}
-                className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                required
+                value={form.phone}
+                onChange={(e) =>
+                  updateField(
+                    "phone",
+                    e.target.value
+                  )
+                }
+                placeholder="Téléphone"
+                className="rounded-lg border px-4 py-3"
               />
-
-              {errors.nouveau_client?.nom && (
-                <p className="mt-1 text-xs text-red-600">
-                  {
-                    errors.nouveau_client.nom
-                      .message
-                  }
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-gray-700">
-                Prénom *
-              </label>
-
-              <input
-                {...register(
-                  "nouveau_client.prenom"
-                )}
-                className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-              />
-
-              {errors.nouveau_client?.prenom && (
-                <p className="mt-1 text-xs text-red-600">
-                  {
-                    errors.nouveau_client.prenom
-                      .message
-                  }
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-gray-700">
-                Téléphone *
-              </label>
-
-              <input
-                type="tel"
-                {...register(
-                  "nouveau_client.telephone"
-                )}
-                className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-              />
-
-              {errors.nouveau_client
-                ?.telephone && (
-                <p className="mt-1 text-xs text-red-600">
-                  {
-                    errors.nouveau_client
-                      .telephone.message
-                  }
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-gray-700">
-                Email
-              </label>
 
               <input
                 type="email"
-                {...register(
-                  "nouveau_client.email"
-                )}
-                className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                value={form.email}
+                onChange={(e) =>
+                  updateField(
+                    "email",
+                    e.target.value
+                  )
+                }
+                placeholder="Email"
+                className="rounded-lg border px-4 py-3"
               />
             </div>
+
+            <textarea
+              value={form.address}
+              onChange={(e) =>
+                updateField(
+                  "address",
+                  e.target.value
+                )
+              }
+              placeholder="Adresse"
+              className="min-h-24 w-full rounded-lg border px-4 py-3"
+            />
           </div>
         )}
       </section>
 
-      {/* ========================================================
-          2. ÉVÉNEMENT
-      ======================================================== */}
-
-      <section className="space-y-4 border-t pt-5">
-        <h3 className="text-md font-semibold text-gray-700">
+      <section>
+        <h2 className="mb-4 text-lg font-semibold">
           2. Événement
-        </h3>
+        </h2>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Type d'événement *
-            </label>
+        <div className="grid gap-4 md:grid-cols-2">
+          <input
+            required
+            value={form.event_type}
+            onChange={(e) =>
+              updateField(
+                "event_type",
+                e.target.value
+              )
+            }
+            placeholder="Type d'événement"
+            className="rounded-lg border px-4 py-3"
+          />
 
-            <select
-              {...register("type_evenement")}
-              className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm"
-            >
-              <option value="Mariage">Mariage</option>
-              <option value="Anniversaire">
-                Anniversaire
-              </option>
-              <option value="Conférence">
-                Conférence
-              </option>
-              <option value="Réunion">Réunion</option>
-              <option value="Baptême">Baptême</option>
-              <option value="Cocktail">Cocktail</option>
-              <option value="Fête familiale">
-                Fête familiale
-              </option>
-              <option value="Autre">Autre</option>
-            </select>
-          </div>
+          <select
+            required
+            value={form.hall}
+            onChange={(e) =>
+              handleHallChange(e.target.value)
+            }
+            className="rounded-lg border px-4 py-3"
+          >
+            <option value="">
+              Sélectionner une salle
+            </option>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Date de l'événement *
-            </label>
-
-            <input
-              type="date"
-              {...register("date_evenement")}
-              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-            />
-
-            {errors.date_evenement && (
-              <p className="mt-1 text-xs text-red-600">
-                {errors.date_evenement.message}
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Heure de début *
-            </label>
-
-            <input
-              type="time"
-              {...register("heure_debut")}
-              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-            />
-
-            {errors.heure_debut && (
-              <p className="mt-1 text-xs text-red-600">
-                {errors.heure_debut.message}
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Heure de fin *
-            </label>
-
-            <input
-              type="time"
-              {...register("heure_fin")}
-              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-            />
-
-            {errors.heure_fin && (
-              <p className="mt-1 text-xs text-red-600">
-                {errors.heure_fin.message}
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Nombre d'invités
-            </label>
-
-            <input
-              type="number"
-              min="1"
-              {...register(
-                "nombre_invites",
-                {
-                  valueAsNumber: true,
-                }
-              )}
-              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* ========================================================
-          3. SALLE ET TARIFICATION
-      ======================================================== */}
-
-      <section className="space-y-4 border-t pt-5">
-        <h3 className="text-md font-semibold text-gray-700">
-          3. Salle et tarification
-        </h3>
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Salle *
-            </label>
-
-            <select
-              {...register("salle_id")}
-              disabled={loadingData}
-              className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm disabled:bg-gray-100"
-            >
-              <option value="">
-                Sélectionner une salle
-              </option>
-
-              {halls.map((hall) => (
+            {halls
+              .filter((hall) => hall)
+              .map((hall) => (
                 <option
                   key={hall.id}
                   value={hall.id}
                 >
-                  {hall.name}
+                  {hall.name} — {hall.capacity} places
                 </option>
               ))}
-            </select>
+          </select>
 
-            {errors.salle_id && (
-              <p className="mt-1 text-xs text-red-600">
-                {errors.salle_id.message}
-              </p>
-            )}
+          <input
+            required
+            type="date"
+            value={form.event_date}
+            onChange={(e) =>
+              updateField(
+                "event_date",
+                e.target.value
+              )
+            }
+            className="rounded-lg border px-4 py-3"
+          />
 
-            {halls.length === 0 &&
-              !loadingData && (
-                <p className="mt-2 text-xs text-amber-600">
-                  Aucune salle disponible.
-                </p>
-              )}
-          </div>
+          <input
+            required
+            type="number"
+            min="1"
+            value={form.guest_count}
+            onChange={(e) =>
+              updateField(
+                "guest_count",
+                Number(e.target.value)
+              )
+            }
+            placeholder="Nombre d'invités"
+            className="rounded-lg border px-4 py-3"
+          />
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Montant total ($) *
-            </label>
+          <input
+            required
+            type="time"
+            value={form.start_time}
+            onChange={(e) =>
+              updateField(
+                "start_time",
+                e.target.value
+              )
+            }
+            className="rounded-lg border px-4 py-3"
+          />
 
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              {...register(
-                "total_amount",
-                {
-                  valueAsNumber: true,
-                }
-              )}
-              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-            />
-
-            {errors.total_amount && (
-              <p className="mt-1 text-xs text-red-600">
-                {errors.total_amount.message}
-              </p>
-            )}
-          </div>
+          <input
+            required
+            type="time"
+            value={form.end_time}
+            onChange={(e) =>
+              updateField(
+                "end_time",
+                e.target.value
+              )
+            }
+            className="rounded-lg border px-4 py-3"
+          />
         </div>
       </section>
 
-      {/* ========================================================
-          BOUTON
-      ======================================================== */}
+      <section>
+        <h2 className="mb-4 text-lg font-semibold">
+          3. Finances
+        </h2>
+
+        <input
+          required
+          type="number"
+          min="0"
+          step="0.01"
+          value={form.total_amount}
+          onChange={(e) =>
+            updateField(
+              "total_amount",
+              e.target.value
+            )
+          }
+          placeholder="Montant total"
+          className="w-full rounded-lg border px-4 py-3"
+        />
+      </section>
+
+      <section>
+        <h2 className="mb-4 text-lg font-semibold">
+          4. Informations complémentaires
+        </h2>
+
+        <textarea
+          value={form.description}
+          onChange={(e) =>
+            updateField(
+              "description",
+              e.target.value
+            )
+          }
+          placeholder="Description"
+          className="mb-4 min-h-24 w-full rounded-lg border px-4 py-3"
+        />
+
+        <textarea
+          value={form.observations}
+          onChange={(e) =>
+            updateField(
+              "observations",
+              e.target.value
+            )
+          }
+          placeholder="Observations"
+          className="min-h-24 w-full rounded-lg border px-4 py-3"
+        />
+      </section>
 
       <button
         type="submit"
-        disabled={
-          isSubmitting || loadingData
-        }
-        className="flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 py-3 font-semibold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+        disabled={loading}
+        className="w-full rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
       >
-        {isSubmitting && (
-          <Loader2 className="h-5 w-5 animate-spin" />
-        )}
-
-        {isSubmitting
-          ? "Enregistrement..."
+        {loading
+          ? "Création en cours..."
           : "Créer la réservation"}
       </button>
     </form>

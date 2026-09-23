@@ -1,159 +1,152 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import Link from "next/link";
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  Eye,
+  Loader2,
+  Plus,
+  RefreshCw,
+} from "lucide-react";
 
-interface Client {
-  id: number;
-  full_name?: string;
-  nom?: string;
-  prenom?: string;
-  phone?: string;
-  telephone?: string;
-  email?: string;
-}
+import api from "@/lib/api";
+import { API_ROUTES } from "@/lib/api-routes";
+import { Client } from "@/types/client";
 
 export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  async function loadClients() {
+    try {
+      setLoading(true);
+      setError("");
+
+      const response = await api.get(
+        `${API_ROUTES.CLIENTS}?page_size=100`
+      );
+
+      const data = response.data;
+
+      setClients(
+        Array.isArray(data)
+          ? data
+          : Array.isArray(data?.results)
+            ? data.results
+            : []
+      );
+    } catch (error: any) {
+      console.error(error);
+
+      setError(
+        error?.response?.data?.detail ||
+          "Impossible de charger les clients."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
-    const loadClients = async () => {
-      try {
-        setLoading(true);
-        setError("");
-
-        const response = await api.get("/clients/");
-
-        console.log("Réponse API clients :", response.data);
-
-        const data = response.data;
-
-        if (Array.isArray(data)) {
-          setClients(data);
-        } else if (Array.isArray(data.results)) {
-          setClients(data.results);
-        } else if (Array.isArray(data.data)) {
-          setClients(data.data);
-        } else {
-          console.error(
-            "Format inattendu de la réponse clients :",
-            data
-          );
-
-          setClients([]);
-          setError(
-            "Le serveur a retourné un format de données inattendu."
-          );
-        }
-      } catch (err) {
-        console.error("Erreur lors du chargement des clients :", err);
-
-        setClients([]);
-        setError("Impossible de charger la liste des clients.");
-      } finally {
-        setLoading(false);
-      }
-    };
-
     loadClients();
   }, []);
 
   return (
-    <Card className="border-gray-200 bg-white shadow-sm">
-      <CardHeader>
-        <CardTitle className="text-gray-900">
-          👥 Clients
-        </CardTitle>
-      </CardHeader>
+    <section className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">
+            Clients
+          </h1>
 
-      <CardContent>
-        {loading && (
-          <p className="py-6 text-center text-gray-500">
-            Chargement des clients...
+          <p className="mt-1 text-sm text-white/60">
+            Gestion des clients et historique de leurs réservations.
           </p>
-        )}
+        </div>
 
-        {!loading && error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            {error}
+        <div className="flex gap-2">
+          <button
+            onClick={loadClients}
+            disabled={loading}
+            className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm hover:bg-white/10"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Actualiser
+          </button>
+
+          <Link
+            href="/clients/nouveau"
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            <Plus className="h-4 w-4" />
+            Nouveau client
+          </Link>
+        </div>
+      </div>
+
+      {error && (
+        <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-red-300">
+          {error}
+        </div>
+      )}
+
+      <div className="overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]">
+        {loading ? (
+          <div className="flex items-center justify-center p-12">
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+            Chargement...
           </div>
-        )}
-
-        {!loading && !error && (
+        ) : clients.length === 0 ? (
+          <div className="p-12 text-center text-white/60">
+            Aucun client enregistré.
+          </div>
+        ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b bg-gray-50 text-left text-gray-600">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-white/10 bg-white/5">
                 <tr>
-                  <th className="px-4 py-3 font-medium">
-                    Nom
-                  </th>
-
-                  <th className="px-4 py-3 font-medium">
-                    Téléphone
-                  </th>
-
-                  <th className="px-4 py-3 font-medium">
-                    Email
-                  </th>
+                  <th className="px-5 py-4">Client</th>
+                  <th className="px-5 py-4">Téléphone</th>
+                  <th className="px-5 py-4">Email</th>
+                  <th className="px-5 py-4">Actions</th>
                 </tr>
               </thead>
 
               <tbody>
-                {clients.map((client) => {
-                  const fullName =
-                    client.full_name ||
-                    `${client.prenom || ""} ${client.nom || ""}`.trim() ||
-                    "-";
+                {clients.map((client) => (
+                  <tr
+                    key={client.id}
+                    className="border-b border-white/5"
+                  >
+                    <td className="px-5 py-4 font-medium">
+                      {client.full_name}
+                    </td>
 
-                  const phone =
-                    client.phone ||
-                    client.telephone ||
-                    "-";
+                    <td className="px-5 py-4 text-white/70">
+                      {client.phone}
+                    </td>
 
-                  return (
-                    <tr
-                      key={client.id}
-                      className="border-b border-gray-100 hover:bg-gray-50"
-                    >
-                      <td className="px-4 py-3 font-medium text-gray-900">
-                        {fullName}
-                      </td>
+                    <td className="px-5 py-4 text-white/70">
+                      {client.email || "-"}
+                    </td>
 
-                      <td className="px-4 py-3 text-gray-600">
-                        {phone}
-                      </td>
-
-                      <td className="px-4 py-3 text-gray-600">
-                        {client.email || "-"}
-                      </td>
-                    </tr>
-                  );
-                })}
-
-                {clients.length === 0 && (
-                  <tr>
-                    <td
-                      className="py-8 text-center text-gray-500"
-                      colSpan={3}
-                    >
-                      Aucun client enregistré.
+                    <td className="px-5 py-4">
+                      <Link
+                        href={`/clients/${client.id}`}
+                        className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 hover:bg-white/10"
+                      >
+                        <Eye className="h-4 w-4" />
+                        Détails
+                      </Link>
                     </td>
                   </tr>
-                )}
+                ))}
               </tbody>
             </table>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }
-
