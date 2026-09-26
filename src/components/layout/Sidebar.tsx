@@ -35,9 +35,9 @@ const links = [
     icon: "🏛️",
   },
   {
-    label: "Services",
-    href: "/services",
-    icon: "🛠️",
+    label: "Tarifs",
+    href: "/tarifs",
+    icon: "🏷️",
   },
   {
     label: "Personnel",
@@ -50,29 +50,19 @@ const links = [
     icon: "📦",
   },
   {
-    label: "Finances",
-    href: "/finances",
-    icon: "💰",
+    label: "Dépenses",
+    href: "/finances/depenses",
+    icon: "💸",
   },
   {
-    label: "Documents",
-    href: "/documents/contrats",
-    icon: "📄",
+    label: "Paiements",
+    href: "/finances/paiements",
+    icon: "💰",
   },
   {
     label: "Notifications",
     href: "/notifications",
     icon: "🔔",
-  },
-  {
-    label: "Rapports",
-    href: "/rapports",
-    icon: "📊",
-  },
-  {
-    label: "Administration",
-    href: "/administration",
-    icon: "⚙️",
   },
 ];
 
@@ -81,7 +71,6 @@ export default function Sidebar() {
 
   return (
     <aside className="hidden w-64 shrink-0 border-r border-white/10 bg-slate-900 lg:flex lg:min-h-screen lg:flex-col">
-
       {/* Logo */}
       <div className="border-b border-white/10 p-5">
         <Link href="/dashboard">

@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+
 import api from "@/lib/api";
 import { API_ROUTES } from "@/lib/api-routes";
 
@@ -62,7 +63,7 @@ export default function ClientForm({
       }
 
       if (redirectAfterCreate) {
-        router.push(`/clients?created=${client.id}`);
+        router.push(`/clients/${client.id}`);
       }
     } catch (error: any) {
       console.error(error);
@@ -79,16 +80,16 @@ export default function ClientForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="space-y-5 rounded-xl border bg-white p-6 shadow-sm"
+      className="space-y-5 rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-sm"
     >
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded-lg border border-red-900 bg-red-950/50 p-4 text-sm text-red-300">
           {error}
         </div>
       )}
 
       <div>
-        <label className="mb-1 block text-sm font-medium text-gray-700">
+        <label className="mb-1 block text-sm font-medium text-slate-300">
           Nom complet *
         </label>
 
@@ -98,14 +99,14 @@ export default function ClientForm({
           onChange={(e) =>
             updateField("full_name", e.target.value)
           }
-          className="w-full rounded-lg border px-4 py-3"
+          className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-500 focus:border-blue-500"
           placeholder="Nom complet du client"
         />
       </div>
 
       <div className="grid gap-5 md:grid-cols-2">
         <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">
+          <label className="mb-1 block text-sm font-medium text-slate-300">
             Téléphone *
           </label>
 
@@ -115,13 +116,13 @@ export default function ClientForm({
             onChange={(e) =>
               updateField("phone", e.target.value)
             }
-            className="w-full rounded-lg border px-4 py-3"
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-500 focus:border-blue-500"
             placeholder="+243..."
           />
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">
+          <label className="mb-1 block text-sm font-medium text-slate-300">
             Email
           </label>
 
@@ -131,14 +132,14 @@ export default function ClientForm({
             onChange={(e) =>
               updateField("email", e.target.value)
             }
-            className="w-full rounded-lg border px-4 py-3"
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-500 focus:border-blue-500"
             placeholder="client@email.com"
           />
         </div>
       </div>
 
       <div>
-        <label className="mb-1 block text-sm font-medium text-gray-700">
+        <label className="mb-1 block text-sm font-medium text-slate-300">
           Adresse
         </label>
 
@@ -147,12 +148,12 @@ export default function ClientForm({
           onChange={(e) =>
             updateField("address", e.target.value)
           }
-          className="min-h-24 w-full rounded-lg border px-4 py-3"
+          className="min-h-24 w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-500 focus:border-blue-500"
         />
       </div>
 
       <div>
-        <label className="mb-1 block text-sm font-medium text-gray-700">
+        <label className="mb-1 block text-sm font-medium text-slate-300">
           Notes
         </label>
 
@@ -161,7 +162,7 @@ export default function ClientForm({
           onChange={(e) =>
             updateField("notes", e.target.value)
           }
-          className="min-h-24 w-full rounded-lg border px-4 py-3"
+          className="min-h-24 w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none placeholder:text-slate-500 focus:border-blue-500"
         />
       </div>
 
@@ -170,7 +171,9 @@ export default function ClientForm({
         disabled={loading}
         className="rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
       >
-        {loading ? "Enregistrement..." : "Créer le client"}
+        {loading
+          ? "Enregistrement..."
+          : "Créer le client"}
       </button>
     </form>
   );

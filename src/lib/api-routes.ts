@@ -4,33 +4,19 @@
     REFRESH: "/auth/refresh/",
   },
 
-  CLIENTS: "/clients/",`r`n  ACCOUNTS: "/accounts/",
-  HALLS: "/halls/",
-  SERVICES: "/services/",
-  MATERIALS: "/materials/",
-
-  RESERVATIONS: "/reservations/",
-  RESERVATION_SERVICES: "/reservation-services/",
-  RESERVATION_MATERIALS: "/reservation-materials/",
-
-  PAYMENTS: "/payments/",
-  EXPENSES: "/expenses/",
-  CASH_MOVEMENTS: "/cash-movements/",
-
-  FINANCES: {
-    PAIEMENTS: "/payments/",
-    DEPENSES: "/expenses/",
-    MOUVEMENTS: "/cash-movements/",
-  },
-
-  PERSONNEL: "/personnel/",
-
   DASHBOARD: "/dashboard/",
 
-  CALENDAR: "/calendar",
+  CLIENTS: "/clients/",
+  HALLS: "/halls/",
+  MATERIALS: "/materials/",
+  PERSONNEL: "/personnel/",
+  RESERVATIONS: "/reservations/",
 
+  PAYMENTS: "/payments/",
+  ACCOUNTS: "/accounts/",
+  CASH_MOVEMENTS: "/cash-movements/",
+  EXPENSES: "/expenses/",
+  CONTRACTS: "/contracts/",
   NOTIFICATIONS: "/notifications/",
-  DOCUMENTS: "/documents/",
-  RAPPORTS: "/rapports/",
-} as const;
-
+  TARIFS: "/tarifs/",
+};

@@ -1,9 +1,16 @@
 "use client";
 
-import React, { useState } from "react";
+import { FormEvent, useState } from "react";
+import { Loader2, LockKeyhole, User } from "lucide-react";
 import { useRouter } from "next/navigation";
+
 import api from "@/lib/api";
 import { API_ROUTES } from "@/lib/api-routes";
+
+interface LoginResponse {
+  access?: string;
+  refresh?: string;
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,42 +23,69 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (
+    e: FormEvent<HTMLFormElement>
+  ) => {
     e.preventDefault();
 
     setError(null);
     setLoading(true);
 
     try {
-      const res = await api.post(API_ROUTES.AUTH.LOGIN, {
-        username: credentials.username,
-        password: credentials.password,
-      });
-
-      // Stockage des jetons SimpleJWT de Django
-      if (res.data.access) {
-        localStorage.setItem("access_token", res.data.access);
-
-        if (res.data.refresh) {
-          localStorage.setItem("refresh_token", res.data.refresh);
+      const res = await api.post<LoginResponse>(
+        API_ROUTES.AUTH.LOGIN,
+        {
+          username: credentials.username.trim(),
+          password: credentials.password,
         }
+      );
 
-        router.push("/dashboard");
-      } else {
+      if (!res.data.access) {
         setError(
-          "Réponse du serveur invalide (jeton manquant)."
+          "Réponse du serveur invalide : jeton d'accès manquant."
+        );
+        return;
+      }
+
+      localStorage.setItem(
+        "access_token",
+        res.data.access
+      );
+
+      if (res.data.refresh) {
+        localStorage.setItem(
+          "refresh_token",
+          res.data.refresh
         );
       }
-    } catch (err: any) {
+
+      router.push("/dashboard");
+      router.refresh();
+    } catch (err: unknown) {
       console.error("Erreur de connexion :", err);
 
-      if (err.response?.status === 401) {
+      const axiosError = err as {
+        response?: {
+          status?: number;
+          data?: {
+            detail?: string;
+          };
+        };
+      };
+
+      if (axiosError.response?.status === 401) {
         setError(
           "Nom d'utilisateur ou mot de passe incorrect."
         );
+      } else if (
+        axiosError.response?.data?.detail
+      ) {
+        setError(
+          axiosError.response.data.detail
+        );
       } else {
         setError(
-          "Impossible de se connecter au serveur. Vérifiez votre connexion."
+          "Impossible de se connecter au serveur. Vérifiez que le backend Django est démarré."
         );
       }
     } finally {
@@ -60,104 +94,118 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-      <div className="w-full max-w-md bg-white rounded-lg shadow-md p-8 space-y-6">
+    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4 py-8 text-white">
 
-        {/* En-tête */}
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-800">
-            La Casa Da Festa Elisabeth
-          </h1>
+      <div className="w-full max-w-md">
 
-          <p className="text-sm text-gray-500 mt-2">
-            Connexion à l'application Elisabeth
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
+
+          <div className="mb-8 text-center">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-500/10 text-blue-400">
+              <LockKeyhole className="h-7 w-7" />
+            </div>
+
+            <h1 className="text-2xl font-bold">
+              La Casa Da Festa Elisabeth
+            </h1>
+
+            <p className="mt-2 text-sm text-slate-400">
+              Connexion à l'application Elisabeth
+            </p>
+          </div>
+
+          {error && (
+            <div className="mb-5 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300">
+              {error}
+            </div>
+          )}
+
+          <form
+            onSubmit={handleSubmit}
+            className="space-y-5"
+          >
+            <div>
+              <label
+                htmlFor="username"
+                className="mb-2 block text-sm font-medium text-slate-300"
+              >
+                Nom d'utilisateur
+              </label>
+
+              <div className="relative">
+                <User className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
+
+                <input
+                  id="username"
+                  type="text"
+                  required
+                  autoComplete="username"
+                  disabled={loading}
+                  value={credentials.username}
+                  onChange={(e) =>
+                    setCredentials({
+                      ...credentials,
+                      username: e.target.value,
+                    })
+                  }
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 py-3 pl-11 pr-4 text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  placeholder="Votre nom d'utilisateur"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label
+                htmlFor="password"
+                className="mb-2 block text-sm font-medium text-slate-300"
+              >
+                Mot de passe
+              </label>
+
+              <div className="relative">
+                <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
+
+                <input
+                  id="password"
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  disabled={loading}
+                  value={credentials.password}
+                  onChange={(e) =>
+                    setCredentials({
+                      ...credentials,
+                      password: e.target.value,
+                    })
+                  }
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 py-3 pl-11 pr-4 text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  placeholder="Votre mot de passe"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-3 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  Connexion en cours...
+                </>
+              ) : (
+                "Se connecter"
+              )}
+            </button>
+          </form>
+
+          <p className="mt-6 text-center text-xs text-slate-600">
+            Application de gestion de salle de fêtes
           </p>
         </div>
-
-        {/* Message d'erreur */}
-        {error && (
-          <div className="p-3 bg-red-100 border border-red-300 text-red-700 text-sm rounded-md">
-            {error}
-          </div>
-        )}
-
-        {/* Formulaire */}
-        <form
-          onSubmit={handleSubmit}
-          className="space-y-4"
-        >
-          {/* Nom d'utilisateur */}
-          <div>
-            <label
-              htmlFor="username"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Nom d'utilisateur
-            </label>
-
-            <input
-              id="username"
-              type="text"
-              required
-              autoComplete="username"
-              disabled={loading}
-              value={credentials.username}
-              onChange={(e) =>
-                setCredentials({
-                  ...credentials,
-                  username: e.target.value,
-                })
-              }
-              className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md
-                         focus:outline-none focus:ring-2 focus:ring-blue-500
-                         disabled:bg-gray-100 disabled:cursor-not-allowed"
-            />
-          </div>
-
-          {/* Mot de passe */}
-          <div>
-            <label
-              htmlFor="password"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Mot de passe
-            </label>
-
-            <input
-              id="password"
-              type="password"
-              required
-              autoComplete="current-password"
-              disabled={loading}
-              value={credentials.password}
-              onChange={(e) =>
-                setCredentials({
-                  ...credentials,
-                  password: e.target.value,
-                })
-              }
-              className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md
-                         focus:outline-none focus:ring-2 focus:ring-blue-500
-                         disabled:bg-gray-100 disabled:cursor-not-allowed"
-            />
-          </div>
-
-          {/* Bouton */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-2.5 bg-blue-600 hover:bg-blue-700
-                       text-white font-semibold rounded-md
-                       transition duration-200
-                       disabled:opacity-50
-                       disabled:cursor-not-allowed"
-          >
-            {loading
-              ? "Connexion en cours..."
-              : "Se connecter"}
-          </button>
-        </form>
       </div>
-    </div>
+    </main>
   );
 }
+
