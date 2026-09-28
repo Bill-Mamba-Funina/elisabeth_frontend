@@ -59,11 +59,13 @@ const links = [
     href: "/finances/paiements",
     icon: "💰",
   },
+  
   {
-    label: "Notifications",
-    href: "/notifications",
-    icon: "🔔",
+    label: "Remboursements",
+    href: "/finances/remboursements",
+    icon: "💰",
   },
+  
 ];
 
 export default function Sidebar() {

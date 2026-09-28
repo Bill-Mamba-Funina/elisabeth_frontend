@@ -17,6 +17,6 @@
   CASH_MOVEMENTS: "/cash-movements/",
   EXPENSES: "/expenses/",
   CONTRACTS: "/contracts/",
-  NOTIFICATIONS: "/notifications/",
   TARIFS: "/tarifs/",
+  REFUNDS: "/refunds/",
 };

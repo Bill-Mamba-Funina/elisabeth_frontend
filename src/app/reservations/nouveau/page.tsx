@@ -9,25 +9,17 @@ import ReservationForm from "@/components/reservations/ReservationForm";
 export default function NouvelleReservationPage() {
   const router = useRouter();
 
-  const handleSuccess = () => {
+  function handleSuccess() {
     router.push("/reservations");
     router.refresh();
-  };
+  }
 
   return (
     <section className="mx-auto max-w-5xl space-y-6">
       <div className="flex items-center gap-4">
         <Link
           href="/reservations"
-          className="
-            rounded-lg
-            border border-slate-700
-            bg-slate-900
-            p-2
-            text-slate-300
-            transition
-            hover:bg-slate-800
-          "
+          className="rounded-lg border border-slate-700 bg-slate-900 p-2 text-slate-300 transition hover:bg-slate-800"
           aria-label="Retour aux réservations"
         >
           <ArrowLeft className="h-5 w-5" />
@@ -48,3 +40,4 @@ export default function NouvelleReservationPage() {
     </section>
   );
 }
+
