@@ -1,13 +1,17 @@
 ﻿"use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import {
+  FormEvent,
+  useEffect,
+  useState,
+} from "react";
 import Link from "next/link";
+import axios from "axios";
 import {
   Edit,
   Loader2,
   Plus,
   RefreshCw,
-  Wallet,
 } from "lucide-react";
 
 import api from "@/lib/api";
@@ -15,12 +19,15 @@ import { API_ROUTES } from "@/lib/api-routes";
 
 interface Expense {
   id: number;
+  title: string;
   category: string;
   category_display?: string;
-  description: string;
   amount: number | string;
   expense_date: string;
-  account_name?: string;
+  status: string;
+  status_display?: string;
+  notes?: string;
+  created_at?: string;
 }
 
 const EXPENSE_TYPES = [
@@ -42,13 +49,47 @@ const EXPENSE_TYPES = [
   },
 ];
 
+const EXPENSE_STATUSES = [
+  {
+    value: "EN_ATTENTE",
+    label: "En attente",
+  },
+  {
+    value: "PAYEE",
+    label: "Payée",
+  },
+  {
+    value: "ANNULEE",
+    label: "Annulée",
+  },
+];
+
+function getToday() {
+  const date = new Date();
+
+  const year = date.getFullYear();
+  const month = String(
+    date.getMonth() + 1
+  ).padStart(2, "0");
+  const day = String(
+    date.getDate()
+  ).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
 export default function DepensesPage() {
-  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>(
+    []
+  );
 
   const [form, setForm] = useState({
+    title: "",
     category: "",
-    description: "",
+    notes: "",
     amount: "",
+    expense_date: getToday(),
+    status: "EN_ATTENTE",
   });
 
   const [loading, setLoading] = useState(true);
@@ -64,18 +105,47 @@ export default function DepensesPage() {
         `${API_ROUTES.EXPENSES}?page_size=1000`
       );
 
-      const data =
-        Array.isArray(response.data)
-          ? response.data
-          : response.data?.results ?? [];
+      const data = Array.isArray(response.data)
+        ? response.data
+        : response.data?.results ?? [];
 
-      setExpenses(Array.isArray(data) ? data : []);
-    } catch (error: unknown) {
-      console.error(error);
-
-      setError(
-        "Impossible de charger les dépenses."
+      setExpenses(
+        Array.isArray(data)
+          ? data
+          : []
       );
+    } catch (error: unknown) {
+      console.error(
+        "❌ ERREUR CHARGEMENT DÉPENSES :",
+        error
+      );
+
+      if (axios.isAxiosError(error)) {
+        const data = error.response?.data;
+
+        if (
+          data &&
+          typeof data === "object" &&
+          "detail" in data
+        ) {
+          setError(
+            String(
+              (data as {
+                detail?: unknown;
+              }).detail ??
+                "Impossible de charger les dépenses."
+            )
+          );
+        } else {
+          setError(
+            "Impossible de charger les dépenses."
+          );
+        }
+      } else {
+        setError(
+          "Une erreur inattendue est survenue."
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -93,12 +163,19 @@ export default function DepensesPage() {
     setError("");
 
     if (!form.category) {
-      setError("Veuillez sélectionner le type de dépense.");
+      setError(
+        "Veuillez sélectionner le type de dépense."
+      );
       return;
     }
 
-    if (!form.description.trim()) {
-      setError("Veuillez saisir la nature ou la description de la dépense.");
+    if (
+      form.category === "AUTRE" &&
+      !form.title.trim()
+    ) {
+      setError(
+        "Veuillez saisir le titre de la dépense."
+      );
       return;
     }
 
@@ -106,48 +183,89 @@ export default function DepensesPage() {
       !form.amount ||
       Number(form.amount) <= 0
     ) {
-      setError("Le montant doit être supérieur à zéro.");
+      setError(
+        "Le montant doit être supérieur à zéro."
+      );
+      return;
+    }
+
+    if (!form.expense_date) {
+      setError(
+        "Veuillez sélectionner la date."
+      );
       return;
     }
 
     try {
       setSaving(true);
 
+      const payload = {
+        category: form.category,
+        title:
+          form.category === "AUTRE"
+            ? form.title.trim()
+            : "",
+        amount: Number(form.amount),
+        expense_date: form.expense_date,
+        status: form.status,
+        notes: form.notes.trim(),
+      };
+
+      console.log(
+        "📤 [POST EXPENSE] :",
+        payload
+      );
+
       await api.post(
         API_ROUTES.EXPENSES,
-        {
-          category: form.category,
-          description: form.description.trim(),
-          amount: Number(form.amount),
-        }
+        payload
       );
 
       setForm({
+        title: "",
         category: "",
-        description: "",
+        notes: "",
         amount: "",
+        expense_date: getToday(),
+        status: "EN_ATTENTE",
       });
 
       await loadExpenses();
     } catch (error: unknown) {
-      console.error(error);
+      console.error(
+        "❌ [POST EXPENSE] :",
+        error
+      );
 
-      const axiosError = error as {
-        response?: {
-          data?: {
-            detail?: string;
-            [key: string]: unknown;
-          };
-        };
-      };
+      if (axios.isAxiosError(error)) {
+        const data = error.response?.data;
 
-      const data = axiosError.response?.data;
+        if (
+          data &&
+          typeof data === "object"
+        ) {
+          const messages = Object.entries(data)
+            .map(([field, value]) => {
+              if (Array.isArray(value)) {
+                return `${field} : ${value.join(", ")}`;
+              }
 
-      if (data?.detail) {
-        setError(String(data.detail));
+              return `${field} : ${String(value)}`;
+            })
+            .join(" | ");
+
+          setError(
+            messages ||
+              "Impossible d'enregistrer la dépense."
+          );
+        } else {
+          setError(
+            "Impossible d'enregistrer la dépense."
+          );
+        }
       } else {
         setError(
-          "Impossible d'enregistrer la dépense."
+          "Une erreur inattendue est survenue."
         );
       }
     } finally {
@@ -166,7 +284,7 @@ export default function DepensesPage() {
           </h1>
 
           <p className="mt-1 text-sm text-white/60">
-            Enregistrement des dépenses et suivi des sorties de caisse.
+            Enregistrement et suivi des dépenses.
           </p>
         </div>
 
@@ -178,7 +296,9 @@ export default function DepensesPage() {
         >
           <RefreshCw
             className={`h-4 w-4 ${
-              loading ? "animate-spin" : ""
+              loading
+                ? "animate-spin"
+                : ""
             }`}
           />
 
@@ -186,22 +306,18 @@ export default function DepensesPage() {
         </button>
       </div>
 
-      {/* INFORMATION CAISSE */}
+      {/* INFORMATION */}
       <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
-        <div className="flex items-start gap-3">
-          <Wallet className="mt-0.5 h-5 w-5 text-amber-400" />
+        <p className="font-medium text-amber-300">
+          Gestion de la caisse
+        </p>
 
-          <div>
-            <p className="font-medium text-amber-300">
-              Sortie automatique de caisse
-            </p>
-
-            <p className="mt-1 text-sm text-amber-200/70">
-              Toute dépense enregistrée diminue automatiquement
-              le solde de la caisse. Aucun compte n'est à sélectionner.
-            </p>
-          </div>
-        </div>
+        <p className="mt-1 text-sm text-amber-200/70">
+          Une dépense en attente n'affecte pas
+          la caisse. Lorsqu'une dépense est
+          enregistrée comme payée, son montant
+          est automatiquement déduit de la caisse.
+        </p>
       </div>
 
       {/* ERREUR */}
@@ -220,7 +336,8 @@ export default function DepensesPage() {
           </h2>
 
           <p className="mt-1 text-sm text-white/50">
-            Le montant sera automatiquement enregistré comme une sortie de caisse.
+            Choisissez le type et le statut de
+            la dépense.
           </p>
         </div>
 
@@ -242,12 +359,19 @@ export default function DepensesPage() {
               id="category"
               required
               value={form.category}
-              onChange={(event) =>
-                setForm({
-                  ...form,
-                  category: event.target.value,
-                })
-              }
+              onChange={(event) => {
+                const category =
+                  event.target.value;
+
+                setForm((current) => ({
+                  ...current,
+                  category,
+                  title:
+                    category === "AUTRE"
+                      ? current.title
+                      : "",
+                }));
+              }}
               disabled={saving}
               className="w-full rounded-lg border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none focus:border-blue-500"
             >
@@ -264,6 +388,53 @@ export default function DepensesPage() {
                 </option>
               ))}
             </select>
+          </div>
+
+          {/* TITRE */}
+          <div>
+            <label
+              htmlFor="title"
+              className="mb-2 block text-sm font-medium text-white/80"
+            >
+              Nature / titre
+            </label>
+
+            <input
+              id="title"
+              type="text"
+              required={
+                form.category === "AUTRE"
+              }
+              value={
+                form.category === "AUTRE"
+                  ? form.title
+                  : form.category
+                    ? EXPENSE_TYPES.find(
+                        (type) =>
+                          type.value ===
+                          form.category
+                      )?.label ?? ""
+                    : ""
+              }
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  title:
+                    event.target.value,
+                })
+              }
+              disabled={
+                saving ||
+                !form.category ||
+                form.category !== "AUTRE"
+              }
+              placeholder={
+                form.category === "AUTRE"
+                  ? "Ex. Achat de matériel"
+                  : "Le titre est automatique"
+              }
+              className="w-full rounded-lg border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none placeholder:text-white/30 focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+            />
           </div>
 
           {/* MONTANT */}
@@ -285,7 +456,8 @@ export default function DepensesPage() {
               onChange={(event) =>
                 setForm({
                   ...form,
-                  amount: event.target.value,
+                  amount:
+                    event.target.value,
                 })
               }
               disabled={saving}
@@ -294,35 +466,92 @@ export default function DepensesPage() {
             />
           </div>
 
-          {/* DESCRIPTION / NATURE */}
-          <div className="md:col-span-2">
+          {/* DATE */}
+          <div>
             <label
-              htmlFor="description"
+              htmlFor="expense_date"
               className="mb-2 block text-sm font-medium text-white/80"
             >
-              Nature / description de la dépense
+              Date de la dépense
             </label>
 
-            <textarea
-              id="description"
+            <input
+              id="expense_date"
               required
-              value={form.description}
+              type="date"
+              value={form.expense_date}
               onChange={(event) =>
                 setForm({
                   ...form,
-                  description: event.target.value,
+                  expense_date:
+                    event.target.value,
                 })
               }
               disabled={saving}
-              placeholder={
-                form.category === "EAU"
-                  ? "Ex. Facture d'eau du mois de septembre"
-                  : form.category === "ELECTRICITE"
-                    ? "Ex. Facture d'électricité du mois de septembre"
-                    : form.category === "SALAIRE"
-                      ? "Ex. Salaire du personnel - septembre"
-                      : "Saisissez manuellement la nature de la dépense"
+              className="w-full rounded-lg border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none focus:border-blue-500"
+            />
+          </div>
+
+          {/* STATUT */}
+          <div className="md:col-span-2">
+            <label
+              htmlFor="status"
+              className="mb-2 block text-sm font-medium text-white/80"
+            >
+              Statut
+            </label>
+
+            <select
+              id="status"
+              required
+              value={form.status}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  status:
+                    event.target.value,
+                })
               }
+              disabled={saving}
+              className="w-full rounded-lg border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none focus:border-blue-500"
+            >
+              {EXPENSE_STATUSES.map(
+                (status) => (
+                  <option
+                    key={status.value}
+                    value={status.value}
+                  >
+                    {status.label}
+                  </option>
+                )
+              )}
+            </select>
+          </div>
+
+          {/* NOTES */}
+          <div className="md:col-span-2">
+            <label
+              htmlFor="notes"
+              className="mb-2 block text-sm font-medium text-white/80"
+            >
+              Notes / détails
+              <span className="ml-2 text-white/40">
+                (facultatif)
+              </span>
+            </label>
+
+            <textarea
+              id="notes"
+              value={form.notes}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  notes:
+                    event.target.value,
+                })
+              }
+              disabled={saving}
+              placeholder="Informations complémentaires..."
               className="min-h-28 w-full rounded-lg border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none placeholder:text-white/30 focus:border-blue-500"
             />
           </div>
@@ -358,7 +587,8 @@ export default function DepensesPage() {
           </h2>
 
           <p className="mt-1 text-sm text-white/50">
-            Les anciennes opérations restent conservées.
+            Les dépenses enregistrées restent
+            conservées dans l'historique.
           </p>
         </div>
 
@@ -376,7 +606,6 @@ export default function DepensesPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-
             <table className="w-full text-left text-sm">
 
               <thead className="bg-white/5 text-white/70">
@@ -398,11 +627,11 @@ export default function DepensesPage() {
                   </th>
 
                   <th className="px-5 py-4">
-                    Caisse
+                    Date
                   </th>
 
                   <th className="px-5 py-4">
-                    Date
+                    Statut
                   </th>
 
                   <th className="px-5 py-4 text-right">
@@ -412,53 +641,72 @@ export default function DepensesPage() {
               </thead>
 
               <tbody>
-                {expenses.map((expense) => (
-                  <tr
-                    key={expense.id}
-                    className="border-t border-white/5"
-                  >
-                    <td className="px-5 py-4 text-white/50">
-                      #{expense.id}
-                    </td>
+                {expenses.map(
+                  (expense) => (
+                    <tr
+                      key={expense.id}
+                      className="border-t border-white/5"
+                    >
+                      <td className="px-5 py-4 text-white/50">
+                        #{expense.id}
+                      </td>
 
-                    <td className="px-5 py-4 font-medium text-white">
-                      {expense.category_display ||
-                        expense.category}
-                    </td>
+                      <td className="px-5 py-4 font-medium text-white">
+                        {expense.category_display ??
+                          expense.category}
+                      </td>
 
-                    <td className="px-5 py-4 text-white/70">
-                      {expense.description}
-                    </td>
+                      <td className="px-5 py-4 text-white/70">
+                        {expense.title}
+                      </td>
 
-                    <td className="px-5 py-4 font-semibold text-red-400">
-                      -{" "}
-                      {Number(
-                        expense.amount
-                      ).toLocaleString("fr-FR")}{" "}
-                      $
-                    </td>
+                      <td className="px-5 py-4 font-semibold text-red-400">
+                        -{" "}
+                        {Number(
+                          expense.amount
+                        ).toLocaleString(
+                          "fr-FR"
+                        )}{" "}
+                        $
+                      </td>
 
-                    <td className="px-5 py-4 text-white/60">
-                      Caisse
-                    </td>
+                      <td className="px-5 py-4 text-white/50">
+                        {new Date(
+                          `${expense.expense_date}T00:00:00`
+                        ).toLocaleDateString(
+                          "fr-FR"
+                        )}
+                      </td>
 
-                    <td className="px-5 py-4 text-white/50">
-                      {new Date(
-                        expense.expense_date
-                      ).toLocaleString("fr-FR")}
-                    </td>
+                      <td className="px-5 py-4">
+                        <span
+                          className={
+                            expense.status ===
+                            "PAYEE"
+                              ? "text-red-400"
+                              : expense.status ===
+                                  "ANNULEE"
+                                ? "text-white/40"
+                                : "text-amber-400"
+                          }
+                        >
+                          {expense.status_display ??
+                            expense.status}
+                        </span>
+                      </td>
 
-                    <td className="px-5 py-4 text-right">
-                      <Link
-                        href={`/finances/depenses/${expense.id}/modifier`}
-                        className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white"
-                      >
-                        <Edit className="h-4 w-4" />
-                        Modifier
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                      <td className="px-5 py-4 text-right">
+                        <Link
+                          href={`/finances/depenses/${expense.id}/modifier`}
+                          className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white"
+                        >
+                          <Edit className="h-4 w-4" />
+                          Modifier
+                        </Link>
+                      </td>
+                    </tr>
+                  )
+                )}
               </tbody>
 
             </table>
@@ -468,3 +716,4 @@ export default function DepensesPage() {
     </section>
   );
 }
+
