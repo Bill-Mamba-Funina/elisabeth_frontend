@@ -8,20 +8,34 @@ import api from "@/lib/api";
 import { API_ROUTES } from "@/lib/api-routes";
 import ReservationTable from "@/components/reservations/ReservationTable";
 
+interface ApiClient {
+  id?: number;
+  full_name?: string;
+  name?: string;
+  phone?: string;
+  address?: string;
+}
+
 interface ApiReservation {
   id: number;
   reservation_number?: string;
   reference?: string;
 
-  client?: number | { id: number; full_name?: string };
+  client?: number | ApiClient;
   client_name?: string;
   client_full_name?: string;
+  client_phone?: string;
+  client_address?: string;
 
   hall?: number | { id: number; name?: string };
   hall_name?: string;
 
   event_type?: string;
+  title?: string;
+  titre?: string;
+
   event_date?: string;
+  reservation_date?: string;
   start_time?: string;
   end_time?: string;
 
@@ -40,27 +54,35 @@ interface ApiReservation {
     | "ANNULEE";
 }
 
-interface Reservation {
+export interface Reservation {
   id: number;
   reference: string;
+
   client: string;
-  salle: string;
+
+  client_full_name?: string;
+  client_phone?: string;
+  client_address?: string;
+
+  client_data?: ApiClient;
+
   date: string;
+
+  titre?: string;
+  title?: string;
+  event_type?: string;
+
   statut: string;
 
-  montant: number | string;
-  montantPaye: number | string;
-  resteAPayer: number | string;
+  montant: number;
+  montantPaye: number;
+  resteAPayer: number;
 
   paymentStatus: "NON_PAYE" | "PARTIEL" | "PAYE";
 }
 
-function extractName(
-  value:
-    | string
-    | number
-    | { id: number; full_name?: string; name?: string }
-    | undefined,
+function extractClientName(
+  value: string | number | ApiClient | undefined,
   fallback: string
 ): string {
   if (typeof value === "object" && value !== null) {
@@ -72,6 +94,42 @@ function extractName(
   }
 
   return fallback;
+}
+
+function extractClientPhone(
+  reservation: ApiReservation
+): string {
+  if (reservation.client_phone) {
+    return reservation.client_phone;
+  }
+
+  if (
+    typeof reservation.client === "object" &&
+    reservation.client !== null &&
+    reservation.client.phone
+  ) {
+    return reservation.client.phone;
+  }
+
+  return "";
+}
+
+function extractClientAddress(
+  reservation: ApiReservation
+): string {
+  if (reservation.client_address) {
+    return reservation.client_address;
+  }
+
+  if (
+    typeof reservation.client === "object" &&
+    reservation.client !== null &&
+    reservation.client.address
+  ) {
+    return reservation.client.address;
+  }
+
+  return "";
 }
 
 function formatDate(value?: string): string {
@@ -91,8 +149,8 @@ function formatDate(value?: string): string {
 function normalizeReservation(
   reservation: ApiReservation
 ): Reservation {
-  const total = Number(reservation.total_amount || 0);
-  const paid = Number(reservation.paid_amount || 0);
+  const total = Number(reservation.total_amount ?? 0);
+  const paid = Number(reservation.paid_amount ?? 0);
 
   const remaining = Math.max(
     0,
@@ -115,6 +173,20 @@ function normalizeReservation(
     }
   }
 
+  const clientName =
+    reservation.client_full_name ||
+    reservation.client_name ||
+    extractClientName(
+      reservation.client,
+      "Client inconnu"
+    );
+
+  const clientPhone =
+    extractClientPhone(reservation);
+
+  const clientAddress =
+    extractClientAddress(reservation);
+
   return {
     id: reservation.id,
 
@@ -123,24 +195,36 @@ function normalizeReservation(
       reservation.reference ||
       `RES-${reservation.id}`,
 
-    client:
-      reservation.client_name ||
-      reservation.client_full_name ||
-      extractName(
-        reservation.client,
-        "Client inconnu"
-      ),
+    client: clientName,
 
-    salle:
-      reservation.hall_name ||
-      extractName(
-        reservation.hall,
-        "Salle inconnue"
-      ),
+    client_full_name: clientName,
+    client_phone: clientPhone,
+    client_address: clientAddress,
+
+    client_data:
+      typeof reservation.client === "object"
+        ? reservation.client
+        : undefined,
 
     date: formatDate(
-      reservation.event_date
+      reservation.event_date ||
+        reservation.reservation_date
     ),
+
+    titre:
+      reservation.titre ||
+      reservation.title ||
+      reservation.event_type ||
+      "Réservation",
+
+    title:
+      reservation.title ||
+      reservation.titre ||
+      reservation.event_type ||
+      "Réservation",
+
+    event_type:
+      reservation.event_type,
 
     statut:
       reservation.status ||
@@ -262,9 +346,7 @@ export default function ReservationsPage() {
           >
             <RefreshCw
               className={`h-4 w-4 ${
-                loading
-                  ? "animate-spin"
-                  : ""
+                loading ? "animate-spin" : ""
               }`}
             />
 
@@ -352,4 +434,3 @@ function StatCard({
     </div>
   );
 }
-

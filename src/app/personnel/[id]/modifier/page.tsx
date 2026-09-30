@@ -53,20 +53,39 @@ interface Personnel {
   prenom: string;
   telephone?: string | null;
   email?: string | null;
+  adresse?: string | null;
   fonction: string;
   statut: string;
+}
+
+interface ApiErrorResponse {
+  detail?: string;
+  message?: string;
+  [key: string]: unknown;
 }
 
 export default function ModifierPersonnelPage() {
   const params = useParams();
   const router = useRouter();
 
-  const id = String(params.id);
+  /**
+   * Next peut retourner params.id sous forme
+   * de string ou de tableau.
+   */
+  const rawId = params?.id;
+
+  const id =
+    Array.isArray(rawId)
+      ? rawId[0]
+      : rawId
+        ? String(rawId)
+        : "";
 
   const [nom, setNom] = useState("");
   const [prenom, setPrenom] = useState("");
   const [telephone, setTelephone] = useState("");
   const [email, setEmail] = useState("");
+  const [adresse, setAdresse] = useState("");
   const [fonction, setFonction] = useState("AUTRE");
   const [statut, setStatut] = useState("ACTIF");
 
@@ -74,7 +93,18 @@ export default function ModifierPersonnelPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  /**
+   * Chargement du personnel
+   */
   useEffect(() => {
+    if (!id) {
+      setError(
+        "Identifiant du membre du personnel introuvable."
+      );
+      setLoading(false);
+      return;
+    }
+
     async function loadPersonnel() {
       try {
         setLoading(true);
@@ -91,24 +121,50 @@ export default function ModifierPersonnelPage() {
         setPrenom(personne.prenom ?? "");
         setTelephone(personne.telephone ?? "");
         setEmail(personne.email ?? "");
+        setAdresse(personne.adresse ?? "");
         setFonction(personne.fonction ?? "AUTRE");
         setStatut(personne.statut ?? "ACTIF");
-      } catch (error) {
-        console.error(error);
-
-        setError(
-          "Impossible de charger ce membre du personnel."
+      } catch (error: unknown) {
+        console.error(
+          "Erreur chargement personnel :",
+          error
         );
+
+        const axiosError = error as {
+          response?: {
+            status?: number;
+            data?: ApiErrorResponse;
+          };
+        };
+
+        const status =
+          axiosError.response?.status;
+
+        const data =
+          axiosError.response?.data;
+
+        if (status === 404) {
+          setError(
+            "Ce membre du personnel n'existe pas ou a été supprimé."
+          );
+        } else if (data?.detail) {
+          setError(String(data.detail));
+        } else {
+          setError(
+            "Impossible de charger ce membre du personnel."
+          );
+        }
       } finally {
         setLoading(false);
       }
     }
 
-    if (id) {
-      loadPersonnel();
-    }
+    loadPersonnel();
   }, [id]);
 
+  /**
+   * Enregistrement des modifications
+   */
   async function handleSubmit(
     event: FormEvent<HTMLFormElement>
   ) {
@@ -116,13 +172,31 @@ export default function ModifierPersonnelPage() {
 
     setError("");
 
-    if (!nom.trim()) {
+    if (!id) {
+      setError(
+        "Impossible de modifier ce membre : identifiant manquant."
+      );
+      return;
+    }
+
+    const nomValue = nom.trim();
+    const prenomValue = prenom.trim();
+    const telephoneValue = telephone.trim();
+    const emailValue = email.trim();
+    const adresseValue = adresse.trim();
+
+    if (!nomValue) {
       setError("Le nom est obligatoire.");
       return;
     }
 
-    if (!prenom.trim()) {
+    if (!prenomValue) {
       setError("Le prénom est obligatoire.");
+      return;
+    }
+
+    if (!fonction) {
+      setError("La fonction est obligatoire.");
       return;
     }
 
@@ -132,10 +206,14 @@ export default function ModifierPersonnelPage() {
       await api.patch(
         `${API_ROUTES.PERSONNEL}${id}/`,
         {
-          nom: nom.trim(),
-          prenom: prenom.trim(),
-          telephone: telephone.trim() || null,
-          email: email.trim() || null,
+          nom: nomValue,
+          prenom: prenomValue,
+          telephone:
+            telephoneValue || null,
+          email:
+            emailValue || null,
+          adresse:
+            adresseValue || null,
           fonction,
           statut,
         }
@@ -144,25 +222,35 @@ export default function ModifierPersonnelPage() {
       router.push("/personnel");
       router.refresh();
     } catch (error: unknown) {
-      console.error(error);
+      console.error(
+        "Erreur modification personnel :",
+        error
+      );
 
       const axiosError = error as {
         response?: {
-          data?: {
-            detail?: string;
-            [key: string]: unknown;
-          };
+          status?: number;
+          data?: ApiErrorResponse;
         };
       };
+
+      const status =
+        axiosError.response?.status;
 
       const data =
         axiosError.response?.data;
 
-      if (data?.detail) {
+      if (status === 404) {
+        setError(
+          "Ce membre du personnel n'existe plus."
+        );
+      } else if (data?.detail) {
         setError(String(data.detail));
+      } else if (data?.message) {
+        setError(String(data.message));
       } else {
         setError(
-          "Impossible de modifier le membre du personnel."
+          "Impossible de modifier le membre du personnel. Vérifiez les informations saisies."
         );
       }
     } finally {
@@ -170,13 +258,16 @@ export default function ModifierPersonnelPage() {
     }
   }
 
+  /**
+   * Chargement
+   */
   if (loading) {
     return (
-      <section className="flex min-h-[400px] items-center justify-center">
-        <div className="text-center text-white/60">
-          <Loader2 className="mx-auto h-7 w-7 animate-spin" />
+      <section className="flex min-h-[400px] items-center justify-center p-6">
+        <div className="text-center text-gray-500">
+          <Loader2 className="mx-auto h-8 w-8 animate-spin" />
 
-          <p className="mt-3">
+          <p className="mt-3 text-sm">
             Chargement du personnel...
           </p>
         </div>
@@ -187,31 +278,31 @@ export default function ModifierPersonnelPage() {
   return (
     <section className="mx-auto max-w-3xl space-y-6 p-6">
 
-      {/* HEADER */}
-      <div className="flex items-center gap-4">
-
+      {/* EN-TÊTE */}
+      <div className="flex items-start gap-4">
         <Link
           href="/personnel"
-          className="rounded-lg border border-white/10 bg-white/5 p-2 text-white/70 hover:bg-white/10 hover:text-white"
+          className="mt-1 inline-flex shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-white p-2 text-gray-600 transition hover:bg-gray-50"
+          title="Retour au personnel"
         >
           <ArrowLeft className="h-5 w-5" />
         </Link>
 
         <div>
-          <h1 className="text-2xl font-bold text-white">
+          <h1 className="text-2xl font-bold text-gray-900">
             Modifier le personnel
           </h1>
 
-          <p className="mt-1 text-sm text-white/50">
-            Modifier les informations du membre du personnel.
+          <p className="mt-1 text-sm text-gray-500">
+            Modifier les informations du membre
+            du personnel.
           </p>
         </div>
-
       </div>
 
       {/* ERREUR */}
       {error && (
-        <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       )}
@@ -219,39 +310,46 @@ export default function ModifierPersonnelPage() {
       {/* FORMULAIRE */}
       <form
         onSubmit={handleSubmit}
-        className="space-y-6 rounded-xl border border-white/10 bg-white/5 p-6"
+        className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm"
       >
 
-        <div>
-          <h2 className="text-lg font-semibold text-white">
+        {/* TITRE */}
+        <div className="mb-6">
+          <h2 className="text-lg font-semibold text-gray-900">
             Informations du personnel
           </h2>
 
-          <p className="mt-1 text-sm text-white/50">
+          <p className="mt-1 text-sm text-gray-500">
             Modifiez les informations nécessaires.
           </p>
         </div>
 
+        {/* CHAMPS */}
         <div className="grid gap-5 md:grid-cols-2">
 
           {/* NOM */}
           <div>
             <label
               htmlFor="nom"
-              className="mb-2 block text-sm font-medium text-white/80"
+              className="mb-1.5 block text-sm font-medium text-gray-700"
             >
-              Nom *
+              Nom{" "}
+              <span className="text-red-500">*</span>
             </label>
 
             <input
               id="nom"
+              name="nom"
+              type="text"
               value={nom}
               onChange={(event) =>
                 setNom(event.target.value)
               }
-              disabled={saving}
+              placeholder="Ex. Mamba"
               required
-              className="w-full rounded-lg border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none focus:border-blue-500"
+              disabled={saving}
+              autoComplete="family-name"
+              className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-gray-100"
             />
           </div>
 
@@ -259,41 +357,49 @@ export default function ModifierPersonnelPage() {
           <div>
             <label
               htmlFor="prenom"
-              className="mb-2 block text-sm font-medium text-white/80"
+              className="mb-1.5 block text-sm font-medium text-gray-700"
             >
-              Prénom *
+              Prénom{" "}
+              <span className="text-red-500">*</span>
             </label>
 
             <input
               id="prenom"
+              name="prenom"
+              type="text"
               value={prenom}
               onChange={(event) =>
                 setPrenom(event.target.value)
               }
-              disabled={saving}
+              placeholder="Ex. Jean"
               required
-              className="w-full rounded-lg border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none focus:border-blue-500"
+              disabled={saving}
+              autoComplete="given-name"
+              className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-gray-100"
             />
           </div>
 
-          {/* TELEPHONE */}
+          {/* TÉLÉPHONE */}
           <div>
             <label
               htmlFor="telephone"
-              className="mb-2 block text-sm font-medium text-white/80"
+              className="mb-1.5 block text-sm font-medium text-gray-700"
             >
               Téléphone
             </label>
 
             <input
               id="telephone"
+              name="telephone"
               type="tel"
               value={telephone}
               onChange={(event) =>
                 setTelephone(event.target.value)
               }
+              placeholder="+243 8XX XXX XXX"
               disabled={saving}
-              className="w-full rounded-lg border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none focus:border-blue-500"
+              autoComplete="tel"
+              className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-gray-100"
             />
           </div>
 
@@ -301,20 +407,47 @@ export default function ModifierPersonnelPage() {
           <div>
             <label
               htmlFor="email"
-              className="mb-2 block text-sm font-medium text-white/80"
+              className="mb-1.5 block text-sm font-medium text-gray-700"
             >
-              Email
+              Adresse e-mail
             </label>
 
             <input
               id="email"
+              name="email"
               type="email"
               value={email}
               onChange={(event) =>
                 setEmail(event.target.value)
               }
+              placeholder="Ex. jean@email.com"
               disabled={saving}
-              className="w-full rounded-lg border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none focus:border-blue-500"
+              autoComplete="email"
+              className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-gray-100"
+            />
+          </div>
+
+          {/* ADRESSE */}
+          <div className="md:col-span-2">
+            <label
+              htmlFor="adresse"
+              className="mb-1.5 block text-sm font-medium text-gray-700"
+            >
+              Adresse
+            </label>
+
+            <textarea
+              id="adresse"
+              name="adresse"
+              value={adresse}
+              onChange={(event) =>
+                setAdresse(event.target.value)
+              }
+              placeholder="Ex. Avenue ..., Commune ..., Kinshasa"
+              rows={3}
+              disabled={saving}
+              autoComplete="street-address"
+              className="w-full resize-none rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-gray-100"
             />
           </div>
 
@@ -322,19 +455,22 @@ export default function ModifierPersonnelPage() {
           <div>
             <label
               htmlFor="fonction"
-              className="mb-2 block text-sm font-medium text-white/80"
+              className="mb-1.5 block text-sm font-medium text-gray-700"
             >
-              Fonction
+              Fonction{" "}
+              <span className="text-red-500">*</span>
             </label>
 
             <select
               id="fonction"
+              name="fonction"
               value={fonction}
               onChange={(event) =>
                 setFonction(event.target.value)
               }
+              required
               disabled={saving}
-              className="w-full rounded-lg border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none focus:border-blue-500"
+              className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-gray-100"
             >
               {FONCTIONS.map((item) => (
                 <option
@@ -351,19 +487,20 @@ export default function ModifierPersonnelPage() {
           <div>
             <label
               htmlFor="statut"
-              className="mb-2 block text-sm font-medium text-white/80"
+              className="mb-1.5 block text-sm font-medium text-gray-700"
             >
               Statut
             </label>
 
             <select
               id="statut"
+              name="statut"
               value={statut}
               onChange={(event) =>
                 setStatut(event.target.value)
               }
               disabled={saving}
-              className="w-full rounded-lg border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none focus:border-blue-500"
+              className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-gray-100"
             >
               <option value="ACTIF">
                 Actif
@@ -374,23 +511,22 @@ export default function ModifierPersonnelPage() {
               </option>
             </select>
           </div>
-
         </div>
 
         {/* ACTIONS */}
-        <div className="flex flex-col-reverse gap-3 border-t border-white/10 pt-6 sm:flex-row sm:justify-end">
+        <div className="mt-8 flex flex-col-reverse gap-3 border-t border-gray-200 pt-6 sm:flex-row sm:justify-end">
 
           <Link
             href="/personnel"
-            className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/5 px-5 py-3 text-sm font-medium text-white/70 hover:bg-white/10 hover:text-white"
+            className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-5 py-3 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
           >
             Annuler
           </Link>
 
           <button
             type="submit"
-            disabled={saving}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-3 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            disabled={saving || !id}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-3 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? (
               <>
@@ -404,10 +540,9 @@ export default function ModifierPersonnelPage() {
               </>
             )}
           </button>
-
         </div>
-
       </form>
     </section>
   );
 }
+

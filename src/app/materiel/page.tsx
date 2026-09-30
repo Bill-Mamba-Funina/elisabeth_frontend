@@ -77,15 +77,25 @@ function getEtatClass(etat: string) {
 }
 
 export default function MaterielPage() {
-  const [materials, setMaterials] = useState<Materiel[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [materials, setMaterials] =
+    useState<Materiel[]>([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [refreshing, setRefreshing] =
+    useState(false);
+
   const [error, setError] = useState("");
 
   const [search, setSearch] = useState("");
-  const [etatFilter, setEtatFilter] = useState("TOUS");
 
-  async function loadMaterials(refresh = false) {
+  const [etatFilter, setEtatFilter] =
+    useState("TOUS");
+
+  async function loadMaterials(
+    refresh = false
+  ) {
     try {
       setError("");
 
@@ -119,6 +129,7 @@ export default function MaterielPage() {
       );
 
       setMaterials([]);
+
       setError(
         "Impossible de charger le matériel."
       );
@@ -150,9 +161,15 @@ export default function MaterielPage() {
         etatFilter === "TOUS" ||
         material.etat === etatFilter;
 
-      return matchesSearch && matchesEtat;
+      return (
+        matchesSearch && matchesEtat
+      );
     });
-  }, [materials, search, etatFilter]);
+  }, [
+    materials,
+    search,
+    etatFilter,
+  ]);
 
   async function handleDelete(
     material: Materiel
@@ -166,6 +183,8 @@ export default function MaterielPage() {
     }
 
     try {
+      setError("");
+
       await api.delete(
         `${API_ROUTES.MATERIALS}${material.id}/`
       );
@@ -183,6 +202,7 @@ export default function MaterielPage() {
   return (
     <section className="space-y-6 p-6">
       {/* HEADER */}
+
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
@@ -198,7 +218,9 @@ export default function MaterielPage() {
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => loadMaterials(true)}
+            onClick={() =>
+              loadMaterials(true)
+            }
             disabled={refreshing}
             className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
@@ -225,6 +247,7 @@ export default function MaterielPage() {
       </div>
 
       {/* ERREUR */}
+
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
@@ -232,6 +255,7 @@ export default function MaterielPage() {
       )}
 
       {/* FILTRES */}
+
       <div className="grid gap-4 rounded-xl border bg-white p-4 shadow-sm md:grid-cols-[1fr_220px]">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -266,6 +290,7 @@ export default function MaterielPage() {
       </div>
 
       {/* STATISTIQUES */}
+
       {!loading && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-xl border bg-white p-5 shadow-sm">
@@ -329,6 +354,7 @@ export default function MaterielPage() {
       )}
 
       {/* TABLE */}
+
       {loading ? (
         <div className="rounded-xl border bg-white p-10 text-center text-gray-500">
           <RefreshCw className="mx-auto h-6 w-6 animate-spin" />
@@ -347,6 +373,10 @@ export default function MaterielPage() {
             <table className="w-full text-left text-sm">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="px-5 py-4 text-gray-700">
+                    N°
+                  </th>
+
                   <th className="px-5 py-4 text-gray-700">
                     Matériel
                   </th>
@@ -371,11 +401,15 @@ export default function MaterielPage() {
 
               <tbody>
                 {filteredMaterials.map(
-                  (material) => (
+                  (material, index) => (
                     <tr
                       key={material.id}
                       className="border-t border-gray-100"
                     >
+                      <td className="px-5 py-4 font-semibold text-gray-500">
+                        {index + 1}
+                      </td>
+
                       <td className="px-5 py-4">
                         <p className="font-semibold text-gray-900">
                           {material.name}
@@ -389,7 +423,9 @@ export default function MaterielPage() {
                       </td>
 
                       <td className="px-5 py-4 font-semibold text-gray-900">
-                        {material.quantity_available}
+                        {
+                          material.quantity_available
+                        }
                       </td>
 
                       <td className="px-5 py-4 text-gray-700">

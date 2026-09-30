@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   CheckCircle2,
   Edit,
+  EllipsisVertical,
   Loader2,
   Search,
   Trash2,
@@ -14,15 +15,10 @@ import {
 import api from "@/lib/api";
 import { API_ROUTES } from "@/lib/api-routes";
 
-import ReservationStatus from "./ReservationStatus";
-
 type PaymentMethod =
   | "ESPECES"
-  | "VIREMENT_BANCAIRE"
-  | "MOBILE_MONEY"
-  | "CARTE"
-  | "CHEQUE"
-  | "AUTRE";
+  | "VIREMENT"
+  | "MOBILE_MONEY";
 
 const PAYMENT_METHODS: {
   value: PaymentMethod;
@@ -33,24 +29,12 @@ const PAYMENT_METHODS: {
     label: "Espèces",
   },
   {
-    value: "VIREMENT_BANCAIRE",
+    value: "VIREMENT",
     label: "Virement bancaire",
   },
   {
     value: "MOBILE_MONEY",
     label: "Mobile Money",
-  },
-  {
-    value: "CARTE",
-    label: "Carte bancaire",
-  },
-  {
-    value: "CHEQUE",
-    label: "Chèque",
-  },
-  {
-    value: "AUTRE",
-    label: "Autre",
   },
 ];
 
@@ -62,9 +46,8 @@ interface ReservationClient {
   address?: string;
 }
 
-interface Reservation {
+export interface Reservation {
   id: number | string;
-
   reference: string;
 
   client: string | ReservationClient;
@@ -72,16 +55,13 @@ interface Reservation {
   client_full_name?: string;
   client_phone?: string;
   client_address?: string;
-
   client_data?: ReservationClient;
 
   title?: string;
   titre?: string;
   event_type?: string;
 
-  salle?: string;
-
-  date: string;
+  date?: string;
   reservation_date?: string;
   event_date?: string;
 
@@ -90,7 +70,6 @@ interface Reservation {
   montant: number | string;
 
   montantPaye?: number | string;
-
   resteAPayer?: number | string;
 
   paymentStatus?:
@@ -101,7 +80,6 @@ interface Reservation {
 
 interface ReservationTableProps {
   reservations: Reservation[];
-
   onRefresh?: () => void | Promise<void>;
 }
 
@@ -114,7 +92,7 @@ const STATUS_LABELS: Record<string, string> = {
   ANNULEE: "Annulée",
 };
 
-function getStatusClass(status: string) {
+function getStatusClass(status: string): string {
   switch (status) {
     case "CONFIRMEE":
       return "bg-emerald-100 text-emerald-700";
@@ -136,15 +114,36 @@ function getStatusClass(status: string) {
   }
 }
 
-/**
- * Retourne le nom du client.
- */
-function getClientName(
-  reservation: Reservation
-): string {
-  if (
-    typeof reservation.client === "string"
-  ) {
+function getPaymentStatusClass(status: string): string {
+  switch (status) {
+    case "PAYE":
+      return "bg-emerald-100 text-emerald-700";
+
+    case "PARTIEL":
+      return "bg-amber-100 text-amber-700";
+
+    case "NON_PAYE":
+    default:
+      return "bg-red-100 text-red-700";
+  }
+}
+
+function getPaymentStatusLabel(status: string): string {
+  switch (status) {
+    case "PAYE":
+      return "Payé";
+
+    case "PARTIEL":
+      return "Partiel";
+
+    case "NON_PAYE":
+    default:
+      return "Non payé";
+  }
+}
+
+function getClientName(reservation: Reservation): string {
+  if (typeof reservation.client === "string") {
     return (
       reservation.client_full_name ||
       reservation.client ||
@@ -160,12 +159,7 @@ function getClientName(
   );
 }
 
-/**
- * Retourne le téléphone du client.
- */
-function getClientPhone(
-  reservation: Reservation
-): string {
+function getClientPhone(reservation: Reservation): string {
   if (reservation.client_phone) {
     return reservation.client_phone;
   }
@@ -184,12 +178,7 @@ function getClientPhone(
   return "";
 }
 
-/**
- * Retourne l'adresse du client.
- */
-function getClientAddress(
-  reservation: Reservation
-): string {
+function getClientAddress(reservation: Reservation): string {
   if (reservation.client_address) {
     return reservation.client_address;
   }
@@ -208,12 +197,6 @@ function getClientAddress(
   return "";
 }
 
-/**
- * Retourne le titre de la réservation.
- *
- * Priorité :
- * titre -> title -> event_type -> "Réservation"
- */
 function getReservationTitle(
   reservation: Reservation
 ): string {
@@ -225,9 +208,6 @@ function getReservationTitle(
   );
 }
 
-/**
- * Retourne la date utilisée pour les filtres.
- */
 function getReservationDate(
   reservation: Reservation
 ): string {
@@ -239,32 +219,23 @@ function getReservationDate(
   );
 }
 
-/**
- * Transforme une date en YYYY-MM-DD
- * lorsque cela est possible.
- */
-function normalizeDate(
-  value: string
-): string {
+function normalizeDate(value: string): string {
   if (!value) {
     return "";
   }
 
   // Format ISO :
-  // 2026-09-29
-  // 2026-09-29T10:00:00Z
-  if (
-    /^\d{4}-\d{2}-\d{2}/.test(value)
-  ) {
+  // 2026-09-30
+  // 2026-09-30T10:00:00Z
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) {
     return value.substring(0, 10);
   }
 
   // Format français :
-  // 29/09/2026
-  const frenchMatch =
-    value.match(
-      /^(\d{2})\/(\d{2})\/(\d{4})/
-    );
+  // 30/09/2026
+  const frenchMatch = value.match(
+    /^(\d{2})\/(\d{2})\/(\d{4})$/
+  );
 
   if (frenchMatch) {
     return `${frenchMatch[3]}-${frenchMatch[2]}-${frenchMatch[1]}`;
@@ -273,19 +244,8 @@ function normalizeDate(
   return "";
 }
 
-/**
- * Nettoie un numéro pour WhatsApp.
- *
- * WhatsApp attend généralement le numéro
- * au format international sans + ni espaces.
- */
-function getWhatsAppUrl(
-  phone: string
-): string {
-  const cleaned = phone.replace(
-    /[^0-9]/g,
-    ""
-  );
+function getWhatsAppUrl(phone: string): string {
+  const cleaned = phone.replace(/[^0-9]/g, "");
 
   if (!cleaned) {
     return "";
@@ -294,12 +254,57 @@ function getWhatsAppUrl(
   return `https://wa.me/${cleaned}`;
 }
 
+function extractApiError(
+  error: unknown,
+  fallback: string
+): string {
+  const axiosError = error as {
+    response?: {
+      data?: unknown;
+    };
+    message?: string;
+  };
+
+  const data = axiosError.response?.data;
+
+  if (
+    typeof data === "object" &&
+    data !== null
+  ) {
+    const entries = Object.entries(
+      data as Record<string, unknown>
+    );
+
+    const messages = entries.map(
+      ([field, value]) => {
+        if (Array.isArray(value)) {
+          return `${field} : ${value.join(", ")}`;
+        }
+
+        if (
+          typeof value === "object" &&
+          value !== null
+        ) {
+          return `${field} : ${JSON.stringify(value)}`;
+        }
+
+        return `${field} : ${String(value)}`;
+      }
+    );
+
+    if (messages.length > 0) {
+      return messages.join(" | ");
+    }
+  }
+
+  return axiosError.message || fallback;
+}
+
 export default function ReservationTable({
   reservations,
   onRefresh,
 }: ReservationTableProps) {
-  const [search, setSearch] =
-    useState("");
+  const [search, setSearch] = useState("");
 
   const [statusFilter, setStatusFilter] =
     useState("TOUS");
@@ -307,9 +312,6 @@ export default function ReservationTable({
   const [paymentFilter, setPaymentFilter] =
     useState("TOUS");
 
-  /**
-   * Filtres temporels.
-   */
   const [dayFilter, setDayFilter] =
     useState("TOUS");
 
@@ -325,9 +327,7 @@ export default function ReservationTable({
   const [
     paymentReservationId,
     setPaymentReservationId,
-  ] = useState<
-    number | string | null
-  >(null);
+  ] = useState<number | string | null>(null);
 
   const [paymentAmount, setPaymentAmount] =
     useState("");
@@ -338,178 +338,147 @@ export default function ReservationTable({
   const [
     processingPayment,
     setProcessingPayment,
-  ] = useState<
-    number | string | null
-  >(null);
+  ] = useState<number | string | null>(null);
 
   const [
     processingDelete,
     setProcessingDelete,
-  ] = useState<
-    number | string | null
-  >(null);
+  ] = useState<number | string | null>(null);
 
   const [
     cancellingReservation,
     setCancellingReservation,
-  ] = useState<
-    number | string | null
-  >(null);
+  ] = useState<number | string | null>(null);
 
-  const [error, setError] =
-    useState("");
+  const [
+    openActionMenu,
+    setOpenActionMenu,
+  ] = useState<number | string | null>(null);
 
-  /**
-   * Années disponibles dans les réservations.
-   */
-  const availableYears =
-    useMemo(() => {
-      const years = new Set<string>();
+  const [error, setError] = useState("");
 
-      reservations.forEach(
-        (reservation) => {
-          const date = normalizeDate(
-            getReservationDate(
-              reservation
-            )
-          );
+  // ==========================================================
+  // ANNÉES DISPONIBLES
+  // ==========================================================
 
-          if (date) {
-            years.add(
-              date.substring(0, 4)
-            );
-          }
-        }
+  const availableYears = useMemo(() => {
+    const years = new Set<string>();
+
+    reservations.forEach((reservation) => {
+      const date = normalizeDate(
+        getReservationDate(reservation)
       );
 
-      return Array.from(years).sort(
-        (a, b) =>
-          Number(b) - Number(a)
+      if (date) {
+        years.add(date.substring(0, 4));
+      }
+    });
+
+    return Array.from(years).sort(
+      (a, b) => Number(b) - Number(a)
+    );
+  }, [reservations]);
+
+  // ==========================================================
+  // FILTRAGE
+  // ==========================================================
+
+  const filteredReservations = useMemo(() => {
+    const term = search.trim().toLowerCase();
+
+    return reservations.filter((reservation) => {
+      const reservationDate = normalizeDate(
+        getReservationDate(reservation)
       );
-    }, [reservations]);
 
-  /**
-   * Filtrage général.
-   */
-  const filteredReservations =
-    useMemo(() => {
-      const term =
-        search.trim().toLowerCase();
+      const clientName =
+        getClientName(reservation);
 
-      return reservations.filter(
-        (reservation) => {
-          const reservationDate =
-            normalizeDate(
-              getReservationDate(
-                reservation
-              )
-            );
+      const clientPhone =
+        getClientPhone(reservation);
 
-          const clientName =
-            getClientName(
-              reservation
-            );
+      const title =
+        getReservationTitle(reservation);
 
-          const clientPhone =
-            getClientPhone(
-              reservation
-            );
+      const matchesSearch =
+        !term ||
+        reservation.reference
+          .toLowerCase()
+          .includes(term) ||
+        clientName
+          .toLowerCase()
+          .includes(term) ||
+        clientPhone
+          .toLowerCase()
+          .includes(term) ||
+        title
+          .toLowerCase()
+          .includes(term);
 
-          const title =
-            getReservationTitle(
-              reservation
-            );
+      const matchesStatus =
+        statusFilter === "TOUS" ||
+        reservation.statut === statusFilter;
 
-          const matchesSearch =
-            !term ||
-            reservation.reference
-              .toLowerCase()
-              .includes(term) ||
-            clientName
-              .toLowerCase()
-              .includes(term) ||
-            clientPhone
-              .toLowerCase()
-              .includes(term) ||
-            title
-              .toLowerCase()
-              .includes(term);
+      const matchesPayment =
+        paymentFilter === "TOUS" ||
+        reservation.paymentStatus ===
+          paymentFilter;
 
-          const matchesStatus =
-            statusFilter === "TOUS" ||
-            reservation.statut ===
-              statusFilter;
+      const matchesExactDate =
+        !exactDateFilter ||
+        reservationDate === exactDateFilter;
 
-          const matchesPayment =
-            paymentFilter === "TOUS" ||
-            reservation.paymentStatus ===
-              paymentFilter;
+      const reservationYear =
+        reservationDate
+          ? reservationDate.substring(0, 4)
+          : "";
 
-          const matchesExactDate =
-            !exactDateFilter ||
-            reservationDate ===
-              exactDateFilter;
+      const reservationMonth =
+        reservationDate
+          ? reservationDate.substring(5, 7)
+          : "";
 
-          const reservationYear =
-            reservationDate
-              ? reservationDate.substring(
-                  0,
-                  4
-                )
-              : "";
+      const reservationDay =
+        reservationDate
+          ? reservationDate.substring(8, 10)
+          : "";
 
-          const reservationMonth =
-            reservationDate
-              ? reservationDate.substring(
-                  5,
-                  7
-                )
-              : "";
+      const matchesYear =
+        yearFilter === "TOUS" ||
+        reservationYear === yearFilter;
 
-          const reservationDay =
-            reservationDate
-              ? reservationDate.substring(
-                  8,
-                  10
-                )
-              : "";
+      const matchesMonth =
+        monthFilter === "TOUS" ||
+        reservationMonth === monthFilter;
 
-          const matchesYear =
-            yearFilter === "TOUS" ||
-            reservationYear ===
-              yearFilter;
+      const matchesDay =
+        dayFilter === "TOUS" ||
+        reservationDay === dayFilter;
 
-          const matchesMonth =
-            monthFilter === "TOUS" ||
-            reservationMonth ===
-              monthFilter;
-
-          const matchesDay =
-            dayFilter === "TOUS" ||
-            reservationDay ===
-              dayFilter;
-
-          return (
-            matchesSearch &&
-            matchesStatus &&
-            matchesPayment &&
-            matchesExactDate &&
-            matchesYear &&
-            matchesMonth &&
-            matchesDay
-          );
-        }
+      return (
+        matchesSearch &&
+        matchesStatus &&
+        matchesPayment &&
+        matchesExactDate &&
+        matchesYear &&
+        matchesMonth &&
+        matchesDay
       );
-    }, [
-      reservations,
-      search,
-      statusFilter,
-      paymentFilter,
-      dayFilter,
-      monthFilter,
-      yearFilter,
-      exactDateFilter,
-    ]);
+    });
+  }, [
+    reservations,
+    search,
+    statusFilter,
+    paymentFilter,
+    dayFilter,
+    monthFilter,
+    yearFilter,
+    exactDateFilter,
+  ]);
+
+  // ==========================================================
+  // RÉINITIALISER FILTRES
+  // ==========================================================
 
   function resetFilters() {
     setSearch("");
@@ -521,20 +490,26 @@ export default function ReservationTable({
     setExactDateFilter("");
   }
 
+  // ==========================================================
+  // OUVRIR PAIEMENT
+  // ==========================================================
+
   function openPayment(
     reservation: Reservation
   ) {
+    const montant = Number(
+      reservation.montant || 0
+    );
+
+    const montantPaye = Number(
+      reservation.montantPaye || 0
+    );
+
     const remaining = Math.max(
       0,
       Number(
         reservation.resteAPayer ??
-          Number(
-            reservation.montant || 0
-          ) -
-            Number(
-              reservation.montantPaye ||
-                0
-            )
+          montant - montantPaye
       )
     );
 
@@ -548,7 +523,12 @@ export default function ReservationTable({
 
     setPaymentMethod("ESPECES");
     setError("");
+    setOpenActionMenu(null);
   }
+
+  // ==========================================================
+  // FERMER PAIEMENT
+  // ==========================================================
 
   function closePayment() {
     setPaymentReservationId(null);
@@ -556,24 +536,28 @@ export default function ReservationTable({
     setPaymentMethod("ESPECES");
   }
 
+  // ==========================================================
+  // ENREGISTRER PAIEMENT
+  // ==========================================================
+
   async function handlePayment(
     reservation: Reservation
   ) {
-    const amount = Number(
-      paymentAmount
+    const amount = Number(paymentAmount);
+
+    const montant = Number(
+      reservation.montant || 0
+    );
+
+    const montantPaye = Number(
+      reservation.montantPaye || 0
     );
 
     const remaining = Math.max(
       0,
       Number(
         reservation.resteAPayer ??
-          Number(
-            reservation.montant || 0
-          ) -
-            Number(
-              reservation.montantPaye ||
-                0
-            )
+          montant - montantPaye
       )
     );
 
@@ -632,20 +616,20 @@ export default function ReservationTable({
     }
   }
 
+  // ==========================================================
+  // ANNULER RÉSERVATION
+  // ==========================================================
+
   async function handleCancel(
     reservation: Reservation
   ) {
-    if (
-      reservation.statut ===
-      "ANNULEE"
-    ) {
+    if (reservation.statut === "ANNULEE") {
       return;
     }
 
-    const confirmed =
-      window.confirm(
-        `Voulez-vous vraiment annuler la réservation ${reservation.reference} ?`
-      );
+    const confirmed = window.confirm(
+      `Voulez-vous vraiment annuler la réservation ${reservation.reference} ?`
+    );
 
     if (!confirmed) {
       return;
@@ -665,6 +649,8 @@ export default function ReservationTable({
         }
       );
 
+      setOpenActionMenu(null);
+
       await onRefresh?.();
     } catch (err: unknown) {
       console.error(
@@ -679,19 +665,20 @@ export default function ReservationTable({
         )
       );
     } finally {
-      setCancellingReservation(
-        null
-      );
+      setCancellingReservation(null);
     }
   }
+
+  // ==========================================================
+  // SUPPRIMER RÉSERVATION
+  // ==========================================================
 
   async function handleDelete(
     reservation: Reservation
   ) {
-    const confirmed =
-      window.confirm(
-        `Voulez-vous supprimer définitivement la réservation ${reservation.reference} ?\n\nCette opération peut être refusée si la réservation possède déjà des paiements.`
-      );
+    const confirmed = window.confirm(
+      `Voulez-vous supprimer définitivement la réservation ${reservation.reference} ?\n\nCette opération peut être refusée si la réservation possède déjà des paiements.`
+    );
 
     if (!confirmed) {
       return;
@@ -707,6 +694,8 @@ export default function ReservationTable({
       await api.delete(
         `${API_ROUTES.RESERVATIONS}${reservation.id}/`
       );
+
+      setOpenActionMenu(null);
 
       await onRefresh?.();
     } catch (err: unknown) {
@@ -726,15 +715,20 @@ export default function ReservationTable({
     }
   }
 
+  // ==========================================================
+  // AFFICHAGE
+  // ==========================================================
+
   return (
     <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900 shadow-sm">
-      {/* ======================================================
+      {/* =====================================================
           FILTRES
       ====================================================== */}
 
       <div className="border-b border-slate-800 p-4">
         <div className="grid gap-3 xl:grid-cols-[1fr_180px_180px_180px]">
-          {/* Recherche */}
+          {/* RECHERCHE */}
+
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
 
@@ -742,16 +736,15 @@ export default function ReservationTable({
               type="text"
               value={search}
               onChange={(event) =>
-                setSearch(
-                  event.target.value
-                )
+                setSearch(event.target.value)
               }
               placeholder="Rechercher par référence, client, téléphone ou titre..."
               className="w-full rounded-lg border border-slate-700 bg-slate-950 py-2.5 pl-10 pr-4 text-sm text-white outline-none focus:border-blue-500"
             />
           </div>
 
-          {/* Statut */}
+          {/* STATUT */}
+
           <select
             value={statusFilter}
             onChange={(event) =>
@@ -790,7 +783,8 @@ export default function ReservationTable({
             </option>
           </select>
 
-          {/* Paiement */}
+          {/* PAIEMENT */}
+
           <select
             value={paymentFilter}
             onChange={(event) =>
@@ -817,7 +811,8 @@ export default function ReservationTable({
             </option>
           </select>
 
-          {/* Date exacte */}
+          {/* DATE EXACTE */}
+
           <input
             type="date"
             value={exactDateFilter}
@@ -831,12 +826,9 @@ export default function ReservationTable({
           />
         </div>
 
-        {/* ==================================================
-            FILTRES JOUR / MOIS / ANNÉE
-        ================================================== */}
-
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {/* Jour */}
+          {/* JOUR */}
+
           <select
             value={dayFilter}
             onChange={(event) =>
@@ -869,7 +861,8 @@ export default function ReservationTable({
             )}
           </select>
 
-          {/* Mois */}
+          {/* MOIS */}
+
           <select
             value={monthFilter}
             onChange={(event) =>
@@ -932,7 +925,8 @@ export default function ReservationTable({
             </option>
           </select>
 
-          {/* Année */}
+          {/* ANNÉE */}
+
           <select
             value={yearFilter}
             onChange={(event) =>
@@ -946,19 +940,18 @@ export default function ReservationTable({
               Toutes les années
             </option>
 
-            {availableYears.map(
-              (year) => (
-                <option
-                  key={year}
-                  value={year}
-                >
-                  {year}
-                </option>
-              )
-            )}
+            {availableYears.map((year) => (
+              <option
+                key={year}
+                value={year}
+              >
+                {year}
+              </option>
+            ))}
           </select>
 
-          {/* Réinitialiser */}
+          {/* RESET */}
+
           <button
             type="button"
             onClick={resetFilters}
@@ -975,7 +968,7 @@ export default function ReservationTable({
         </div>
       </div>
 
-      {/* ======================================================
+      {/* =====================================================
           ERREUR
       ====================================================== */}
 
@@ -985,12 +978,12 @@ export default function ReservationTable({
         </div>
       )}
 
-      {/* ======================================================
+      {/* =====================================================
           TABLEAU
       ====================================================== */}
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1500px] text-left text-sm">
+        <table className="w-full min-w-[1250px] text-left text-sm">
           <thead className="bg-slate-950">
             <tr className="border-b border-slate-800">
               <th className="px-5 py-3 text-slate-400">
@@ -1025,7 +1018,7 @@ export default function ReservationTable({
                 Montant
               </th>
 
-              <th className="px-5 py-3 text-slate-400">
+              <th className="px-5 py-3 text-center text-slate-400">
                 Actions
               </th>
             </tr>
@@ -1038,11 +1031,9 @@ export default function ReservationTable({
                   reservation.montant || 0
                 );
 
-                const montantPaye =
-                  Number(
-                    reservation.montantPaye ||
-                      0
-                  );
+                const montantPaye = Number(
+                  reservation.montantPaye || 0
+                );
 
                 const resteAPayer =
                   Math.max(
@@ -1111,22 +1102,33 @@ export default function ReservationTable({
                   processingDelete ===
                   reservation.id;
 
+                const isMenuOpen =
+                  openActionMenu ===
+                  reservation.id;
+
+                const paymentStatus =
+                  reservation.paymentStatus ||
+                  "NON_PAYE";
+
                 return (
                   <tr
                     key={reservation.id}
                     className="border-b border-slate-800 align-top transition hover:bg-slate-800/50"
                   >
                     {/* N° */}
+
                     <td className="px-5 py-4 font-bold text-slate-500">
                       {index + 1}
                     </td>
 
                     {/* RÉFÉRENCE */}
+
                     <td className="px-5 py-4 font-semibold text-white">
                       {reservation.reference}
                     </td>
 
                     {/* TITRE */}
+
                     <td className="px-5 py-4">
                       <div className="font-semibold text-white">
                         {title}
@@ -1134,13 +1136,14 @@ export default function ReservationTable({
                     </td>
 
                     {/* CLIENT */}
+
                     <td className="px-5 py-4">
                       <div className="min-w-[240px]">
                         <div className="font-semibold text-white">
                           {clientName}
                         </div>
 
-                        {clientPhone && (
+                        {clientPhone ? (
                           <a
                             href={
                               whatsappUrl
@@ -1150,27 +1153,24 @@ export default function ReservationTable({
                             className="mt-1 block text-sm font-medium text-emerald-400 transition hover:text-emerald-300 hover:underline"
                             title="Discuter avec le client sur WhatsApp"
                           >
-                            WhatsApp :{" "}
                             {clientPhone}
                           </a>
-                        )}
-
-                        {clientAddress && (
-                          <div className="mt-1 text-xs text-slate-400">
-                            {clientAddress}
+                        ) : (
+                          <div className="mt-1 text-xs text-slate-500">
+                            Téléphone non renseigné
                           </div>
                         )}
 
-                        {!clientPhone &&
-                          !clientAddress && (
-                            <div className="mt-1 text-xs text-slate-500">
-                              Coordonnées non renseignées
-                            </div>
-                          )}
+                        {clientAddress && (
+                          <div className="mt-1 text-xs leading-5 text-slate-400">
+                            {clientAddress}
+                          </div>
+                        )}
                       </div>
                     </td>
 
                     {/* DATE */}
+
                     <td className="px-5 py-4 text-slate-300">
                       {reservationDate ||
                         getReservationDate(
@@ -1180,6 +1180,7 @@ export default function ReservationTable({
                     </td>
 
                     {/* STATUT */}
+
                     <td className="px-5 py-4">
                       <span
                         className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getStatusClass(
@@ -1194,24 +1195,171 @@ export default function ReservationTable({
                     </td>
 
                     {/* PAIEMENT */}
-                    <td className="px-5 py-4">
-                      <ReservationStatus
-                        totalAmount={
-                          montant
-                        }
-                        paidAmount={
-                          montantPaye
-                        }
-                        remainingAmount={
-                          resteAPayer
-                        }
-                        paymentStatus={
-                          reservation.paymentStatus ||
-                          "NON_PAYE"
-                        }
-                      />
 
-                      {/* FORMULAIRE PAIEMENT */}
+                    <td className="px-5 py-4">
+                      <span
+                        className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getPaymentStatusClass(
+                          paymentStatus
+                        )}`}
+                      >
+                        {getPaymentStatusLabel(
+                          paymentStatus
+                        )}
+                      </span>
+                    </td>
+
+                    {/* MONTANT */}
+
+                    <td className="px-5 py-4">
+                      <div className="min-w-[150px] space-y-1">
+                        <div className="font-semibold text-white">
+                          Total :{" "}
+                          {montant.toLocaleString(
+                            "fr-FR"
+                          )}{" "}
+                          $
+                        </div>
+
+                        <div className="text-xs text-emerald-400">
+                          Payé :{" "}
+                          {montantPaye.toLocaleString(
+                            "fr-FR"
+                          )}{" "}
+                          $
+                        </div>
+
+                        <div
+                          className={`text-sm font-bold ${
+                            resteAPayer > 0
+                              ? "text-red-400"
+                              : "text-emerald-400"
+                          }`}
+                        >
+                          Reste :{" "}
+                          {resteAPayer.toLocaleString(
+                            "fr-FR"
+                          )}{" "}
+                          $
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* ACTIONS */}
+
+                    <td className="px-5 py-4">
+                      <div className="relative flex justify-center">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOpenActionMenu(
+                              isMenuOpen
+                                ? null
+                                : reservation.id
+                            )
+                          }
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 bg-slate-950 text-slate-300 transition hover:bg-slate-800 hover:text-white"
+                          title="Afficher les actions"
+                          aria-label="Afficher les actions"
+                        >
+                          <EllipsisVertical className="h-5 w-5" />
+                        </button>
+
+                        {isMenuOpen && (
+                          <div className="absolute right-0 top-11 z-50 w-48 rounded-xl border border-slate-700 bg-slate-950 p-2 shadow-2xl">
+                            {/* PAYER */}
+
+                            {!isCancelled &&
+                              !isPaid && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    isPaymentOpen
+                                      ? closePayment()
+                                      : openPayment(
+                                          reservation
+                                        )
+                                  }
+                                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-emerald-300 hover:bg-emerald-950/50"
+                                >
+                                  <CheckCircle2 className="h-4 w-4" />
+
+                                  {isPaymentOpen
+                                    ? "Fermer paiement"
+                                    : "Payer"}
+                                </button>
+                              )}
+
+                            {/* MODIFIER */}
+
+                            <Link
+                              href={`/reservations/${reservation.id}/modifier`}
+                              onClick={() =>
+                                setOpenActionMenu(
+                                  null
+                                )
+                              }
+                              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-blue-300 hover:bg-blue-950/50"
+                            >
+                              <Edit className="h-4 w-4" />
+
+                              Modifier
+                            </Link>
+
+                            {/* ANNULER */}
+
+                            {!isCancelled && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleCancel(
+                                    reservation
+                                  )
+                                }
+                                disabled={
+                                  isCancelling
+                                }
+                                className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-amber-300 hover:bg-amber-950/50 disabled:opacity-50"
+                              >
+                                {isCancelling ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <XCircle className="h-4 w-4" />
+                                )}
+
+                                Annuler
+                              </button>
+                            )}
+
+                            {/* SUPPRIMER */}
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleDelete(
+                                  reservation
+                                )
+                              }
+                              disabled={
+                                isDeleting
+                              }
+                              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-red-300 hover:bg-red-950/50 disabled:opacity-50"
+                            >
+                              {isDeleting ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+
+                              Supprimer
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* =================================================
+                          FORMULAIRE PAIEMENT
+                      ================================================== */}
+
                       {!isCancelled &&
                         !isPaid &&
                         isPaymentOpen && (
@@ -1231,9 +1379,7 @@ export default function ReservationTable({
                               className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white"
                             >
                               {PAYMENT_METHODS.map(
-                                (
-                                  method
-                                ) => (
+                                (method) => (
                                   <option
                                     key={
                                       method.value
@@ -1272,6 +1418,14 @@ export default function ReservationTable({
                               placeholder="Montant"
                             />
 
+                            <div className="text-xs text-slate-400">
+                              Reste maximum :{" "}
+                              {resteAPayer.toLocaleString(
+                                "fr-FR"
+                              )}{" "}
+                              $
+                            </div>
+
                             <button
                               type="button"
                               onClick={() =>
@@ -1305,115 +1459,6 @@ export default function ReservationTable({
                           </div>
                         )}
                     </td>
-
-                    {/* MONTANT */}
-                    <td className="px-5 py-4">
-                      <div className="font-semibold text-white">
-                        {montant.toLocaleString(
-                          "fr-FR"
-                        )}{" "}
-                        $
-                      </div>
-
-                      <div className="mt-1 text-xs text-emerald-400">
-                        Payé :{" "}
-                        {montantPaye.toLocaleString(
-                          "fr-FR"
-                        )}{" "}
-                        $
-                      </div>
-
-                      <div className="text-xs text-red-400">
-                        Reste :{" "}
-                        {resteAPayer.toLocaleString(
-                          "fr-FR"
-                        )}{" "}
-                        $
-                      </div>
-                    </td>
-
-                    {/* ACTIONS */}
-                    <td className="px-5 py-4">
-                      <div className="flex min-w-[190px] flex-col gap-2">
-                        {/* PAYER */}
-                        {!isCancelled &&
-                          !isPaid && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                isPaymentOpen
-                                  ? closePayment()
-                                  : openPayment(
-                                      reservation
-                                    )
-                              }
-                              className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
-                            >
-                              <CheckCircle2 className="h-4 w-4" />
-
-                              {isPaymentOpen
-                                ? "Fermer"
-                                : "Payer"}
-                            </button>
-                          )}
-
-                        {/* MODIFIER */}
-                        <Link
-                          href={`/reservations/${reservation.id}/modifier`}
-                          className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-800 bg-blue-950/40 px-3 py-2 text-xs font-semibold text-blue-300 hover:bg-blue-900/40"
-                        >
-                          <Edit className="h-4 w-4" />
-
-                          Modifier
-                        </Link>
-
-                        {/* ANNULER */}
-                        {!isCancelled && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleCancel(
-                                reservation
-                              )
-                            }
-                            disabled={
-                              isCancelling
-                            }
-                            className="inline-flex items-center justify-center gap-2 rounded-lg border border-amber-800 bg-amber-950/30 px-3 py-2 text-xs font-semibold text-amber-300 hover:bg-amber-900/40 disabled:opacity-50"
-                          >
-                            {isCancelling ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <XCircle className="h-4 w-4" />
-                            )}
-
-                            Annuler
-                          </button>
-                        )}
-
-                        {/* SUPPRIMER */}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleDelete(
-                              reservation
-                            )
-                          }
-                          disabled={
-                            isDeleting
-                          }
-                          className="inline-flex items-center justify-center gap-2 rounded-lg border border-red-800 bg-red-950/30 px-3 py-2 text-xs font-semibold text-red-300 hover:bg-red-900/40 disabled:opacity-50"
-                        >
-                          {isDeleting ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-4 w-4" />
-                          )}
-
-                          Supprimer
-                        </button>
-                      </div>
-                    </td>
                   </tr>
                 );
               }
@@ -1422,12 +1467,11 @@ export default function ReservationTable({
         </table>
       </div>
 
-      {/* ======================================================
+      {/* =====================================================
           AUCUN RÉSULTAT
       ====================================================== */}
 
-      {filteredReservations.length ===
-        0 && (
+      {filteredReservations.length === 0 && (
         <div className="p-10 text-center">
           <p className="text-slate-400">
             Aucune réservation trouvée.
@@ -1437,49 +1481,3 @@ export default function ReservationTable({
     </div>
   );
 }
-
-function extractApiError(
-  error: unknown,
-  fallback: string
-): string {
-  const axiosError = error as {
-    response?: {
-      data?: unknown;
-    };
-    message?: string;
-  };
-
-  const data =
-    axiosError.response?.data;
-
-  if (
-    typeof data === "object" &&
-    data !== null
-  ) {
-    const entries = Object.entries(
-      data as Record<string, unknown>
-    );
-
-    const messages = entries.map(
-      ([field, value]) => {
-        if (Array.isArray(value)) {
-          return `${field} : ${value.join(
-            ", "
-          )}`;
-        }
-
-        return `${field} : ${String(value)}`;
-      }
-    );
-
-    if (messages.length > 0) {
-      return messages.join(" | ");
-    }
-  }
-
-  return (
-    axiosError.message ||
-    fallback
-  );
-}
-

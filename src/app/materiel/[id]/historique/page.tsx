@@ -62,6 +62,7 @@ export default function HistoriqueMaterielPage() {
     async function loadHistory() {
       try {
         setLoading(true);
+        setError("");
 
         const [
           materialResponse,
@@ -154,6 +155,10 @@ export default function HistoriqueMaterielPage() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-5 py-4">
+                    N°
+                  </th>
+
+                  <th className="px-5 py-4">
                     Date
                   </th>
 
@@ -176,11 +181,15 @@ export default function HistoriqueMaterielPage() {
               </thead>
 
               <tbody>
-                {history.map((item) => (
+                {history.map((item, index) => (
                   <tr
                     key={item.id}
                     className="border-t border-gray-100"
                   >
+                    <td className="px-5 py-4 font-medium text-gray-500">
+                      {index + 1}
+                    </td>
+
                     <td className="whitespace-nowrap px-5 py-4 text-gray-600">
                       {new Date(
                         item.created_at

@@ -3,15 +3,20 @@
 import {
   FormEvent,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 import Link from "next/link";
 import axios from "axios";
 import {
   Edit,
+  Filter,
   Loader2,
   Plus,
   RefreshCw,
+  RotateCcw,
+  Search,
+  Trash2,
 } from "lucide-react";
 
 import api from "@/lib/api";
@@ -64,13 +69,66 @@ const EXPENSE_STATUSES = [
   },
 ];
 
+const MONTHS = [
+  {
+    value: "01",
+    label: "Janvier",
+  },
+  {
+    value: "02",
+    label: "Février",
+  },
+  {
+    value: "03",
+    label: "Mars",
+  },
+  {
+    value: "04",
+    label: "Avril",
+  },
+  {
+    value: "05",
+    label: "Mai",
+  },
+  {
+    value: "06",
+    label: "Juin",
+  },
+  {
+    value: "07",
+    label: "Juillet",
+  },
+  {
+    value: "08",
+    label: "Août",
+  },
+  {
+    value: "09",
+    label: "Septembre",
+  },
+  {
+    value: "10",
+    label: "Octobre",
+  },
+  {
+    value: "11",
+    label: "Novembre",
+  },
+  {
+    value: "12",
+    label: "Décembre",
+  },
+];
+
 function getToday() {
   const date = new Date();
 
   const year = date.getFullYear();
+
   const month = String(
     date.getMonth() + 1
   ).padStart(2, "0");
+
   const day = String(
     date.getDate()
   ).padStart(2, "0");
@@ -78,10 +136,63 @@ function getToday() {
   return `${year}-${month}-${day}`;
 }
 
-export default function DepensesPage() {
-  const [expenses, setExpenses] = useState<Expense[]>(
-    []
+function getYears(
+  expenses: Expense[]
+): string[] {
+  const years = new Set<string>();
+
+  const currentYear =
+    new Date().getFullYear();
+
+  years.add(String(currentYear));
+
+  expenses.forEach((expense) => {
+    if (!expense.expense_date) {
+      return;
+    }
+
+    const year =
+      expense.expense_date.substring(
+        0,
+        4
+      );
+
+    if (year) {
+      years.add(year);
+    }
+  });
+
+  return Array.from(years).sort(
+    (a, b) =>
+      Number(b) - Number(a)
   );
+}
+
+function formatDate(
+  date: string
+): string {
+  if (!date) {
+    return "-";
+  }
+
+  const parsedDate = new Date(
+    `${date}T00:00:00`
+  );
+
+  if (
+    Number.isNaN(parsedDate.getTime())
+  ) {
+    return date;
+  }
+
+  return parsedDate.toLocaleDateString(
+    "fr-FR"
+  );
+}
+
+export default function DepensesPage() {
+  const [expenses, setExpenses] =
+    useState<Expense[]>([]);
 
   const [form, setForm] = useState({
     title: "",
@@ -92,9 +203,46 @@ export default function DepensesPage() {
     status: "EN_ATTENTE",
   });
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const [loading, setLoading] =
+    useState(true);
+
+  const [saving, setSaving] =
+    useState(false);
+
+  const [deletingId, setDeletingId] =
+    useState<number | null>(null);
+
+  const [error, setError] =
+    useState("");
+
+  // =====================================================
+  // FILTRES
+  // =====================================================
+
+  const [search, setSearch] =
+    useState("");
+
+  const [typeFilter, setTypeFilter] =
+    useState("");
+
+  const [natureFilter, setNatureFilter] =
+    useState("");
+
+  const [dayFilter, setDayFilter] =
+    useState("");
+
+  const [monthFilter, setMonthFilter] =
+    useState("");
+
+  const [yearFilter, setYearFilter] =
+    useState("");
+
+  const [statusFilter, setStatusFilter] =
+    useState("");
+
+  // =====================================================
+  // CHARGEMENT
+  // =====================================================
 
   async function loadExpenses() {
     try {
@@ -105,9 +253,10 @@ export default function DepensesPage() {
         `${API_ROUTES.EXPENSES}?page_size=1000`
       );
 
-      const data = Array.isArray(response.data)
-        ? response.data
-        : response.data?.results ?? [];
+      const data =
+        Array.isArray(response.data)
+          ? response.data
+          : response.data?.results ?? [];
 
       setExpenses(
         Array.isArray(data)
@@ -121,7 +270,8 @@ export default function DepensesPage() {
       );
 
       if (axios.isAxiosError(error)) {
-        const data = error.response?.data;
+        const data =
+          error.response?.data;
 
         if (
           data &&
@@ -130,9 +280,11 @@ export default function DepensesPage() {
         ) {
           setError(
             String(
-              (data as {
-                detail?: unknown;
-              }).detail ??
+              (
+                data as {
+                  detail?: unknown;
+                }
+              ).detail ??
                 "Impossible de charger les dépenses."
             )
           );
@@ -155,6 +307,10 @@ export default function DepensesPage() {
     loadExpenses();
   }, []);
 
+  // =====================================================
+  // CRÉATION
+  // =====================================================
+
   async function handleSubmit(
     event: FormEvent<HTMLFormElement>
   ) {
@@ -174,7 +330,7 @@ export default function DepensesPage() {
       !form.title.trim()
     ) {
       setError(
-        "Veuillez saisir le titre de la dépense."
+        "Veuillez saisir la nature de la dépense."
       );
       return;
     }
@@ -201,13 +357,19 @@ export default function DepensesPage() {
 
       const payload = {
         category: form.category,
+
         title:
           form.category === "AUTRE"
             ? form.title.trim()
             : "",
+
         amount: Number(form.amount),
-        expense_date: form.expense_date,
+
+        expense_date:
+          form.expense_date,
+
         status: form.status,
+
         notes: form.notes.trim(),
       };
 
@@ -238,21 +400,31 @@ export default function DepensesPage() {
       );
 
       if (axios.isAxiosError(error)) {
-        const data = error.response?.data;
+        const data =
+          error.response?.data;
 
         if (
           data &&
           typeof data === "object"
         ) {
-          const messages = Object.entries(data)
-            .map(([field, value]) => {
-              if (Array.isArray(value)) {
-                return `${field} : ${value.join(", ")}`;
-              }
+          const messages =
+            Object.entries(data)
+              .map(
+                ([field, value]) => {
+                  if (
+                    Array.isArray(value)
+                  ) {
+                    return `${field} : ${value.join(
+                      ", "
+                    )}`;
+                  }
 
-              return `${field} : ${String(value)}`;
-            })
-            .join(" | ");
+                  return `${field} : ${String(
+                    value
+                  )}`;
+                }
+              )
+              .join(" | ");
 
           setError(
             messages ||
@@ -273,11 +445,247 @@ export default function DepensesPage() {
     }
   }
 
+  // =====================================================
+  // SUPPRESSION
+  // =====================================================
+
+  async function handleDelete(
+    expense: Expense
+  ) {
+    const confirmed =
+      window.confirm(
+        `Voulez-vous vraiment supprimer la dépense "${expense.title}" de ${Number(
+          expense.amount
+        ).toLocaleString(
+          "fr-FR"
+        )} $ ?`
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setError("");
+      setDeletingId(expense.id);
+
+      await api.delete(
+        `${API_ROUTES.EXPENSES}${expense.id}/`
+      );
+
+      await loadExpenses();
+    } catch (error: unknown) {
+      console.error(
+        "❌ [DELETE EXPENSE] :",
+        error
+      );
+
+      if (axios.isAxiosError(error)) {
+        const data =
+          error.response?.data;
+
+        if (
+          data &&
+          typeof data === "object" &&
+          "detail" in data
+        ) {
+          setError(
+            String(
+              (
+                data as {
+                  detail?: unknown;
+                }
+              ).detail ??
+                "Impossible de supprimer la dépense."
+            )
+          );
+        } else {
+          setError(
+            "Impossible de supprimer la dépense."
+          );
+        }
+      } else {
+        setError(
+          "Une erreur inattendue est survenue."
+        );
+      }
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  // =====================================================
+  // ANNÉES DISPONIBLES
+  // =====================================================
+
+  const years = useMemo(
+    () => getYears(expenses),
+    [expenses]
+  );
+
+  // =====================================================
+  // FILTRAGE
+  // =====================================================
+
+  const filteredExpenses =
+    useMemo(() => {
+      const searchValue =
+        search.trim().toLowerCase();
+
+      const natureValue =
+        natureFilter
+          .trim()
+          .toLowerCase();
+
+      return expenses.filter(
+        (expense) => {
+          const expenseDate =
+            expense.expense_date ?? "";
+
+          const year =
+            expenseDate.substring(
+              0,
+              4
+            );
+
+          const month =
+            expenseDate.substring(
+              5,
+              7
+            );
+
+          const day =
+            expenseDate.substring(
+              8,
+              10
+            );
+
+          const title =
+            expense.title
+              ?.toLowerCase() ?? "";
+
+          const category =
+            expense.category
+              ?.toLowerCase() ?? "";
+
+          const categoryDisplay =
+            expense.category_display
+              ?.toLowerCase() ?? "";
+
+          const notes =
+            expense.notes
+              ?.toLowerCase() ?? "";
+
+          const matchesSearch =
+            !searchValue ||
+            title.includes(
+              searchValue
+            ) ||
+            category.includes(
+              searchValue
+            ) ||
+            categoryDisplay.includes(
+              searchValue
+            ) ||
+            notes.includes(
+              searchValue
+            );
+
+          const matchesType =
+            !typeFilter ||
+            expense.category ===
+              typeFilter;
+
+          const matchesNature =
+            !natureValue ||
+            title.includes(
+              natureValue
+            );
+
+          const matchesDay =
+            !dayFilter ||
+            day === dayFilter;
+
+          const matchesMonth =
+            !monthFilter ||
+            month === monthFilter;
+
+          const matchesYear =
+            !yearFilter ||
+            year === yearFilter;
+
+          const matchesStatus =
+            !statusFilter ||
+            expense.status ===
+              statusFilter;
+
+          return (
+            matchesSearch &&
+            matchesType &&
+            matchesNature &&
+            matchesDay &&
+            matchesMonth &&
+            matchesYear &&
+            matchesStatus
+          );
+        }
+      );
+    }, [
+      expenses,
+      search,
+      typeFilter,
+      natureFilter,
+      dayFilter,
+      monthFilter,
+      yearFilter,
+      statusFilter,
+    ]);
+
+  // =====================================================
+  // RÉINITIALISER LES FILTRES
+  // =====================================================
+
+  function resetFilters() {
+    setSearch("");
+    setTypeFilter("");
+    setNatureFilter("");
+    setDayFilter("");
+    setMonthFilter("");
+    setYearFilter("");
+    setStatusFilter("");
+  }
+
+  const hasActiveFilters =
+    Boolean(
+      search ||
+        typeFilter ||
+        natureFilter ||
+        dayFilter ||
+        monthFilter ||
+        yearFilter ||
+        statusFilter
+    );
+
+  // =====================================================
+  // TOTAL
+  // =====================================================
+
+  const totalFilteredAmount =
+    filteredExpenses.reduce(
+      (total, expense) =>
+        total + Number(expense.amount),
+      0
+    );
+
   return (
     <section className="space-y-6">
 
-      {/* HEADER */}
+      {/* =================================================
+          HEADER
+      ================================================= */}
+
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+
         <div>
           <h1 className="text-2xl font-bold text-white">
             Dépenses
@@ -306,7 +714,10 @@ export default function DepensesPage() {
         </button>
       </div>
 
-      {/* INFORMATION */}
+      {/* =================================================
+          INFORMATION
+      ================================================= */}
+
       <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
         <p className="font-medium text-amber-300">
           Gestion de la caisse
@@ -320,14 +731,20 @@ export default function DepensesPage() {
         </p>
       </div>
 
-      {/* ERREUR */}
+      {/* =================================================
+          ERREUR
+      ================================================= */}
+
       {error && (
         <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
           {error}
         </div>
       )}
 
-      {/* FORMULAIRE */}
+      {/* =================================================
+          FORMULAIRE
+      ================================================= */}
+
       <div className="rounded-xl border border-white/10 bg-white/5 p-6">
 
         <div className="mb-5">
@@ -379,18 +796,20 @@ export default function DepensesPage() {
                 Sélectionner le type
               </option>
 
-              {EXPENSE_TYPES.map((type) => (
-                <option
-                  key={type.value}
-                  value={type.value}
-                >
-                  {type.label}
-                </option>
-              ))}
+              {EXPENSE_TYPES.map(
+                (type) => (
+                  <option
+                    key={type.value}
+                    value={type.value}
+                  >
+                    {type.label}
+                  </option>
+                )
+              )}
             </select>
           </div>
 
-          {/* TITRE */}
+          {/* NATURE */}
           <div>
             <label
               htmlFor="title"
@@ -403,7 +822,8 @@ export default function DepensesPage() {
               id="title"
               type="text"
               required={
-                form.category === "AUTRE"
+                form.category ===
+                "AUTRE"
               }
               value={
                 form.category === "AUTRE"
@@ -426,10 +846,12 @@ export default function DepensesPage() {
               disabled={
                 saving ||
                 !form.category ||
-                form.category !== "AUTRE"
+                form.category !==
+                  "AUTRE"
               }
               placeholder={
-                form.category === "AUTRE"
+                form.category ===
+                "AUTRE"
                   ? "Ex. Achat de matériel"
                   : "Le titre est automatique"
               }
@@ -479,7 +901,9 @@ export default function DepensesPage() {
               id="expense_date"
               required
               type="date"
-              value={form.expense_date}
+              value={
+                form.expense_date
+              }
               onChange={(event) =>
                 setForm({
                   ...form,
@@ -578,19 +1002,330 @@ export default function DepensesPage() {
         </form>
       </div>
 
-      {/* HISTORIQUE */}
+      {/* =================================================
+          HISTORIQUE
+      ================================================= */}
+
       <div className="overflow-hidden rounded-xl border border-white/10 bg-white/5">
 
         <div className="border-b border-white/10 p-5">
-          <h2 className="font-semibold text-white">
-            Historique des dépenses
-          </h2>
 
-          <p className="mt-1 text-sm text-white/50">
-            Les dépenses enregistrées restent
-            conservées dans l'historique.
-          </p>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+
+            <div>
+              <h2 className="font-semibold text-white">
+                Historique des dépenses
+              </h2>
+
+              <p className="mt-1 text-sm text-white/50">
+                Filtrez et consultez les dépenses
+                enregistrées.
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-white/5 px-4 py-2 text-sm text-white/70">
+              {filteredExpenses.length}{" "}
+              résultat
+              {filteredExpenses.length >
+              1
+                ? "s"
+                : ""}
+            </div>
+
+          </div>
         </div>
+
+        {/* =================================================
+            FILTRES
+        ================================================= */}
+
+        {!loading &&
+          expenses.length > 0 && (
+            <div className="border-b border-white/10 p-5">
+
+              <div className="mb-4 flex items-center gap-2">
+                <Filter className="h-4 w-4 text-white/60" />
+
+                <h3 className="font-medium text-white">
+                  Filtres
+                </h3>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+
+                {/* RECHERCHE */}
+                <div className="lg:col-span-2">
+                  <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-white/50">
+                    Recherche
+                  </label>
+
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
+
+                    <input
+                      type="search"
+                      value={search}
+                      onChange={(event) =>
+                        setSearch(
+                          event.target.value
+                        )
+                      }
+                      placeholder="Rechercher une dépense..."
+                      className="w-full rounded-lg border border-white/10 bg-slate-900 py-3 pl-10 pr-4 text-sm text-white outline-none placeholder:text-white/30 focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                {/* TYPE */}
+                <div>
+                  <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-white/50">
+                    Type
+                  </label>
+
+                  <select
+                    value={typeFilter}
+                    onChange={(event) =>
+                      setTypeFilter(
+                        event.target.value
+                      )
+                    }
+                    className="w-full rounded-lg border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+                  >
+                    <option value="">
+                      Tous les types
+                    </option>
+
+                    {EXPENSE_TYPES.map(
+                      (type) => (
+                        <option
+                          key={type.value}
+                          value={type.value}
+                        >
+                          {type.label}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </div>
+
+                {/* NATURE */}
+                <div>
+                  <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-white/50">
+                    Nature
+                  </label>
+
+                  <input
+                    type="text"
+                    value={natureFilter}
+                    onChange={(event) =>
+                      setNatureFilter(
+                        event.target.value
+                      )
+                    }
+                    placeholder="Ex. matériel"
+                    className="w-full rounded-lg border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-blue-500"
+                  />
+                </div>
+
+                {/* JOUR */}
+                <div>
+                  <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-white/50">
+                    Jour
+                  </label>
+
+                  <select
+                    value={dayFilter}
+                    onChange={(event) =>
+                      setDayFilter(
+                        event.target.value
+                      )
+                    }
+                    className="w-full rounded-lg border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+                  >
+                    <option value="">
+                      Tous les jours
+                    </option>
+
+                    {Array.from(
+                      { length: 31 },
+                      (_, index) => {
+                        const day =
+                          String(
+                            index + 1
+                          ).padStart(
+                            2,
+                            "0"
+                          );
+
+                        return (
+                          <option
+                            key={day}
+                            value={day}
+                          >
+                            {index + 1}
+                          </option>
+                        );
+                      }
+                    )}
+                  </select>
+                </div>
+
+                {/* MOIS */}
+                <div>
+                  <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-white/50">
+                    Mois
+                  </label>
+
+                  <select
+                    value={monthFilter}
+                    onChange={(event) =>
+                      setMonthFilter(
+                        event.target.value
+                      )
+                    }
+                    className="w-full rounded-lg border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+                  >
+                    <option value="">
+                      Tous les mois
+                    </option>
+
+                    {MONTHS.map(
+                      (month) => (
+                        <option
+                          key={
+                            month.value
+                          }
+                          value={
+                            month.value
+                          }
+                        >
+                          {month.label}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </div>
+
+                {/* ANNÉE */}
+                <div>
+                  <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-white/50">
+                    Année
+                  </label>
+
+                  <select
+                    value={yearFilter}
+                    onChange={(event) =>
+                      setYearFilter(
+                        event.target.value
+                      )
+                    }
+                    className="w-full rounded-lg border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+                  >
+                    <option value="">
+                      Toutes les années
+                    </option>
+
+                    {years.map(
+                      (year) => (
+                        <option
+                          key={year}
+                          value={year}
+                        >
+                          {year}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </div>
+
+                {/* STATUT */}
+                <div>
+                  <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-white/50">
+                    Statut
+                  </label>
+
+                  <select
+                    value={statusFilter}
+                    onChange={(event) =>
+                      setStatusFilter(
+                        event.target.value
+                      )
+                    }
+                    className="w-full rounded-lg border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+                  >
+                    <option value="">
+                      Tous les statuts
+                    </option>
+
+                    {EXPENSE_STATUSES.map(
+                      (status) => (
+                        <option
+                          key={
+                            status.value
+                          }
+                          value={
+                            status.value
+                          }
+                        >
+                          {status.label}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </div>
+
+              </div>
+
+              {/* RÉSUMÉ FILTRES */}
+              <div className="mt-5 flex flex-col gap-3 border-t border-white/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
+
+                <div className="text-sm text-white/50">
+                  <span className="font-medium text-white">
+                    {filteredExpenses.length}
+                  </span>{" "}
+                  dépense
+                  {filteredExpenses.length >
+                  1
+                    ? "s"
+                    : ""}{" "}
+                  trouvée
+                  {filteredExpenses.length >
+                  1
+                    ? "s"
+                    : ""}
+
+                  {" · "}
+
+                  Total :{" "}
+                  <span className="font-semibold text-red-400">
+                    {totalFilteredAmount.toLocaleString(
+                      "fr-FR"
+                    )}{" "}
+                    $
+                  </span>
+                </div>
+
+                {hasActiveFilters && (
+                  <button
+                    type="button"
+                    onClick={
+                      resetFilters
+                    }
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white/70 hover:bg-white/10 hover:text-white"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+
+                    Réinitialiser les filtres
+                  </button>
+                )}
+
+              </div>
+            </div>
+          )}
+
+        {/* =================================================
+            CONTENU
+        ================================================= */}
 
         {loading ? (
           <div className="p-10 text-center text-white/60">
@@ -602,16 +1337,53 @@ export default function DepensesPage() {
           </div>
         ) : expenses.length === 0 ? (
           <div className="p-10 text-center text-white/50">
-            Aucune dépense.
+            <p>
+              Aucune dépense.
+            </p>
+
+            <p className="mt-1 text-sm">
+              Les dépenses enregistrées
+              apparaîtront ici.
+            </p>
+          </div>
+        ) : filteredExpenses.length ===
+          0 ? (
+          <div className="p-10 text-center text-white/50">
+
+            <Search className="mx-auto h-8 w-8 text-white/20" />
+
+            <p className="mt-3 font-medium text-white/70">
+              Aucune dépense trouvée
+            </p>
+
+            <p className="mt-1 text-sm">
+              Aucun résultat ne correspond
+              aux filtres sélectionnés.
+            </p>
+
+            <button
+              type="button"
+              onClick={
+                resetFilters
+              }
+              className="mt-4 inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/15"
+            >
+              <RotateCcw className="h-4 w-4" />
+
+              Réinitialiser
+            </button>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+
+            <table className="w-full min-w-[1100px] text-left text-sm">
 
               <thead className="bg-white/5 text-white/70">
+
                 <tr>
-                  <th className="px-5 py-4">
-                    #
+
+                  <th className="w-16 px-5 py-4 text-center">
+                    N°
                   </th>
 
                   <th className="px-5 py-4">
@@ -635,84 +1407,165 @@ export default function DepensesPage() {
                   </th>
 
                   <th className="px-5 py-4 text-right">
-                    Action
+                    Actions
                   </th>
+
                 </tr>
+
               </thead>
 
               <tbody>
-                {expenses.map(
-                  (expense) => (
+
+                {filteredExpenses.map(
+                  (
+                    expense,
+                    index
+                  ) => (
                     <tr
-                      key={expense.id}
-                      className="border-t border-white/5"
+                      key={
+                        expense.id
+                      }
+                      className="border-t border-white/5 transition hover:bg-white/[0.03]"
                     >
-                      <td className="px-5 py-4 text-white/50">
-                        #{expense.id}
+
+                      {/* N° */}
+                      <td className="px-5 py-4 text-center">
+
+                        <span className="font-semibold text-white/50">
+                          {index + 1}
+                        </span>
+
                       </td>
 
-                      <td className="px-5 py-4 font-medium text-white">
-                        {expense.category_display ??
-                          expense.category}
+                      {/* TYPE */}
+                      <td className="px-5 py-4">
+
+                        <span className="font-medium text-white">
+                          {expense.category_display ??
+                            expense.category}
+                        </span>
+
                       </td>
 
-                      <td className="px-5 py-4 text-white/70">
-                        {expense.title}
+                      {/* NATURE */}
+                      <td className="px-5 py-4">
+
+                        <div>
+                          <p className="font-medium text-white">
+                            {expense.title ||
+                              "-"}
+                          </p>
+
+                          {expense.notes && (
+                            <p className="mt-1 max-w-xs truncate text-xs text-white/40">
+                              {
+                                expense.notes
+                              }
+                            </p>
+                          )}
+                        </div>
+
                       </td>
 
-                      <td className="px-5 py-4 font-semibold text-red-400">
-                        -{" "}
-                        {Number(
-                          expense.amount
-                        ).toLocaleString(
-                          "fr-FR"
-                        )}{" "}
-                        $
+                      {/* MONTANT */}
+                      <td className="px-5 py-4">
+
+                        <span className="font-semibold text-red-400">
+                          -{" "}
+                          {Number(
+                            expense.amount
+                          ).toLocaleString(
+                            "fr-FR"
+                          )}{" "}
+                          $
+                        </span>
+
                       </td>
 
-                      <td className="px-5 py-4 text-white/50">
-                        {new Date(
-                          `${expense.expense_date}T00:00:00`
-                        ).toLocaleDateString(
-                          "fr-FR"
+                      {/* DATE */}
+                      <td className="px-5 py-4 text-white/60">
+                        {formatDate(
+                          expense.expense_date
                         )}
                       </td>
 
+                      {/* STATUT */}
                       <td className="px-5 py-4">
+
                         <span
                           className={
                             expense.status ===
                             "PAYEE"
-                              ? "text-red-400"
+                              ? "inline-flex rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-400"
                               : expense.status ===
                                   "ANNULEE"
-                                ? "text-white/40"
-                                : "text-amber-400"
+                                ? "inline-flex rounded-full bg-white/5 px-2.5 py-1 text-xs font-medium text-white/40"
+                                : "inline-flex rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-400"
                           }
                         >
                           {expense.status_display ??
                             expense.status}
                         </span>
+
                       </td>
 
-                      <td className="px-5 py-4 text-right">
-                        <Link
-                          href={`/finances/depenses/${expense.id}/modifier`}
-                          className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white"
-                        >
-                          <Edit className="h-4 w-4" />
-                          Modifier
-                        </Link>
+                      {/* ACTIONS */}
+                      <td className="px-5 py-4">
+
+                        <div className="flex justify-end gap-2">
+
+                          {/* MODIFIER */}
+                          <Link
+                            href={`/finances/depenses/${expense.id}/modifier`}
+                            className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70 transition hover:bg-white/10 hover:text-white"
+                          >
+                            <Edit className="h-4 w-4" />
+
+                            Modifier
+                          </Link>
+
+                          {/* SUPPRIMER */}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleDelete(
+                                expense
+                              )
+                            }
+                            disabled={
+                              deletingId ===
+                              expense.id
+                            }
+                            className="inline-flex items-center justify-center gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-sm text-red-400 transition hover:bg-red-500/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+                            title="Supprimer"
+                          >
+                            {deletingId ===
+                            expense.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+
+                            Supprimer
+                          </button>
+
+                        </div>
+
                       </td>
+
                     </tr>
                   )
                 )}
+
               </tbody>
 
             </table>
+
           </div>
         )}
+
       </div>
+
     </section>
   );
 }

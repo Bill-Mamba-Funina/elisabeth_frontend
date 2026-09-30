@@ -16,6 +16,10 @@ export default function NouvelleReservationPage() {
 
   return (
     <section className="mx-auto max-w-5xl space-y-6">
+      {/* ======================================================
+          EN-TÊTE
+      ====================================================== */}
+
       <div className="flex items-center gap-4">
         <Link
           href="/reservations"
@@ -36,8 +40,14 @@ export default function NouvelleReservationPage() {
         </div>
       </div>
 
-      <ReservationForm onSubmitSuccess={handleSuccess} />
+      {/* ======================================================
+          FORMULAIRE
+      ====================================================== */}
+
+      <ReservationForm
+        onSuccess={handleSuccess}
+        redirectAfterSave={false}
+      />
     </section>
   );
 }
-

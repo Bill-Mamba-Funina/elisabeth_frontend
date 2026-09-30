@@ -1,1192 +1,953 @@
 "use client";
 
-import {
-FormEvent,
-useEffect,
-useState,
-} from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Loader2, X } from "lucide-react";
 
 import api from "@/lib/api";
+import { API_ROUTES } from "@/lib/api-routes";
 
-export type Reservation = {
-id: number;
+/* ============================================================
+   TYPES
+============================================================ */
 
-reservation_number?: string | null;
+export interface PaymentReservation {
+  id: number;
+  reservation_number?: string;
+  client_full_name?: string;
+  client_name?: string;
 
-client?: {
-id?: number;
-full_name?: string | null;
-phone?: string | null;
-} | null;
+  total_amount?: string | number;
 
-client_name?: string | null;
+  /**
+   * Montant brut des paiements validés.
+   */
+  paid_amount?: string | number;
 
-tarif?: {
-amount?: number | string | null;
-} | null;
+  /**
+   * Montant total déjà remboursé.
+   */
+  refunded_amount?: string | number;
 
-total_amount?: number | string | null;
-};
+  /**
+   * Montant net réellement payé après remboursements.
+   */
+  net_paid_amount?: string | number;
 
-export type FinancialAccount = {
-id: number;
-name: string;
-account_type?: string | null;
-balance?: number | string | null;
-is_active?: boolean;
-};
+  /**
+   * Reste à payer après remboursements.
+   */
+  remaining_amount?: string | number;
 
-type PaymentModalProps = {
-isOpen: boolean;
-
-onClose: () => void;
-
-reservation?: Reservation | null;
-
-reservations?: Reservation[];
-
-accounts?: FinancialAccount[];
-
-onSuccess?: (payment: unknown) => void;
-};
-
-type PaymentFormData = {
-reservation: string;
-amount: string;
-payment_date: string;
-
-method:
-| "ESPECES"
-| "VIREMENT"
-| "MOBILE_MONEY";
-
-reference: string;
-
-operator: string;
-
-financial_account: string;
-
-status:
-| "VALIDE"
-| "EN_ATTENTE";
-};
-
-const EMPTY_FORM: PaymentFormData = {
-reservation: "",
-amount: "",
-payment_date: "",
-method: "ESPECES",
-reference: "",
-operator: "",
-financial_account: "",
-status: "VALIDE",
-};
-
-function getTodayDateTime(): string {
-const now = new Date();
-
-const year =
-now.getFullYear();
-
-const month = String(
-now.getMonth() + 1,
-).padStart(2, "0");
-
-const day = String(
-now.getDate(),
-).padStart(2, "0");
-
-const hours = String(
-now.getHours(),
-).padStart(2, "0");
-
-const minutes = String(
-now.getMinutes(),
-).padStart(2, "0");
-
-return `${year}-${month}-${day}T${hours}:${minutes}`;
+  payment_status?: string;
 }
 
-function formatMoney(
-value: number | string | null | undefined,
-): string {
-if (
-value === null ||
-value === undefined ||
-value === ""
-) {
-return "0,00";
+export interface PaymentAccount {
+  id: number;
+  name: string;
+  account_type?: string;
+  balance?: string | number;
+  is_active?: boolean;
 }
 
-const number = Number(value);
-
-if (Number.isNaN(number)) {
-return "0,00";
+export interface PaymentFormData {
+  reservation: number | null;
+  financial_account: number | null;
+  amount: string;
+  method: string;
+  reference: string;
+  operator: string;
 }
 
-return new Intl.NumberFormat(
-"fr-FR",
-{
-minimumFractionDigits: 2,
-maximumFractionDigits: 2,
-},
-).format(number);
+interface PaymentModalProps {
+  open: boolean;
+  onClose: () => void;
+  onSuccess?: () => void;
+  reservation?: PaymentReservation | null;
+  reservations?: PaymentReservation[];
+  accounts?: PaymentAccount[];
 }
 
-function extractBackendError(
-error: unknown,
-): string {
-const axiosError =
-error as {
-response?: {
-data?: unknown;
-status?: number;
-};
-message?: string;
-};
+/* ============================================================
+   HELPERS
+============================================================ */
 
-const data =
-axiosError?.response?.data;
+function extractList<T>(responseData: unknown): T[] {
+  if (Array.isArray(responseData)) {
+    return responseData as T[];
+  }
 
-if (!data) {
-return (
-axiosError?.message ??
-"Une erreur est survenue."
-);
-}
+  if (
+    typeof responseData === "object" &&
+    responseData !== null &&
+    "results" in responseData
+  ) {
+    const results = (responseData as { results?: unknown }).results;
 
-if (typeof data === "string") {
-return data;
-}
-
-if (
-typeof data === "object" &&
-data !== null
-) {
-const record =
-data as Record<
-string,
-unknown
->;
-
-
-if (
-  typeof record.detail ===
-  "string"
-) {
-  return record.detail;
-}
-
-const messages: string[] = [];
-
-Object.entries(record).forEach(
-  ([field, value]) => {
-    if (Array.isArray(value)) {
-      value.forEach((item) => {
-        messages.push(
-          `${field}: ${
-            typeof item ===
-            "string"
-              ? item
-              : JSON.stringify(item)
-          }`,
-        );
-      });
-
-      return;
+    if (Array.isArray(results)) {
+      return results as T[];
     }
+  }
 
-    if (
-      typeof value ===
-      "string"
-    ) {
-      messages.push(
-        `${field}: ${value}`,
-      );
+  return [];
+}
 
-      return;
+function getBackendError(error: unknown): string {
+  const axiosError = error as {
+    response?: {
+      data?: unknown;
+    };
+    message?: string;
+  };
+
+  const data = axiosError?.response?.data;
+
+  if (typeof data === "string") {
+    return data;
+  }
+
+  if (data && typeof data === "object") {
+    const values = Object.entries(data as Record<string, unknown>)
+      .map(([key, value]) => {
+        if (Array.isArray(value)) {
+          return `${key}: ${value.join(", ")}`;
+        }
+
+        if (typeof value === "object" && value !== null) {
+          return `${key}: ${JSON.stringify(value)}`;
+        }
+
+        return `${key}: ${String(value)}`;
+      })
+      .join("\n");
+
+    if (values) {
+      return values;
     }
+  }
 
-    if (
-      value !== null &&
-      value !== undefined
-    ) {
-      messages.push(
-        `${field}: ${JSON.stringify(
-          value,
-        )}`,
-      );
-    }
-  },
-);
-
-if (messages.length > 0) {
-  return messages.join("\n");
+  return axiosError?.message || "Une erreur est survenue.";
 }
 
-
+function getTotalAmount(
+  reservation: PaymentReservation | null | undefined,
+): number {
+  return Number(reservation?.total_amount ?? 0);
 }
 
-return "Le serveur a refusé l'enregistrement du paiement.";
+function getPaidAmount(
+  reservation: PaymentReservation | null | undefined,
+): number {
+  return Number(
+    reservation?.net_paid_amount ??
+      reservation?.paid_amount ??
+      0,
+  );
 }
+
+function getRefundedAmount(
+  reservation: PaymentReservation | null | undefined,
+): number {
+  return Number(reservation?.refunded_amount ?? 0);
+}
+
+function getRemainingAmount(
+  reservation: PaymentReservation | null | undefined,
+): number {
+  if (!reservation) {
+    return 0;
+  }
+
+  /*
+   * Le backend peut déjà fournir remaining_amount.
+   * On le privilégie car il représente la valeur officielle.
+   */
+  if (
+    reservation.remaining_amount !== undefined &&
+    reservation.remaining_amount !== null
+  ) {
+    return Math.max(
+      Number(reservation.remaining_amount),
+      0,
+    );
+  }
+
+  /*
+   * Sinon :
+   *
+   * total
+   * - paiements nets
+   * = reste
+   */
+  const total = getTotalAmount(reservation);
+  const paid = getPaidAmount(reservation);
+
+  return Math.max(total - paid, 0);
+}
+
+/* ============================================================
+   COMPONENT
+============================================================ */
 
 export default function PaymentModal({
-isOpen,
-onClose,
-reservation = null,
-reservations = [],
-accounts = [],
-onSuccess,
+  open,
+  onClose,
+  onSuccess,
+  reservation,
+  reservations = [],
+  accounts = [],
 }: PaymentModalProps) {
-const [form, setForm] =
-useState<PaymentFormData>({
-...EMPTY_FORM,
-});
+  const [localReservations, setLocalReservations] =
+    useState<PaymentReservation[]>(reservations);
 
-const [isSubmitting, setIsSubmitting] =
-useState(false);
+  const [localAccounts, setLocalAccounts] =
+    useState<PaymentAccount[]>(accounts);
 
-const [errorMessage, setErrorMessage] =
-useState("");
+  const [form, setForm] = useState<PaymentFormData>({
+    reservation: reservation?.id ?? null,
+    financial_account: null,
+    amount: "",
+    method: "ESPECES",
+    reference: "",
+    operator: "",
+  });
 
-const [successMessage, setSuccessMessage] =
-useState("");
+  const [loading, setLoading] = useState(false);
+  const [loadingData, setLoadingData] = useState(false);
+  const [error, setError] = useState("");
 
-/**
+  /* ============================================================
+     CHARGEMENT
+  ============================================================ */
 
-* =========================================================
-* INITIALISATION
-* =========================================================
-  */
   useEffect(() => {
-  if (!isOpen) {
-  return;
+    if (!open) {
+      return;
+    }
+
+    setError("");
+
+    setForm((previous) => ({
+      ...previous,
+      reservation:
+        reservation?.id ??
+        previous.reservation,
+      amount:
+        reservation
+          ? getRemainingAmount(reservation).toFixed(2)
+          : previous.amount,
+    }));
+
+    const loadData = async () => {
+      try {
+        setLoadingData(true);
+
+        /*
+         * RESERVATIONS
+         */
+        if (reservations.length === 0) {
+          const reservationResponse =
+            await api.get(
+              API_ROUTES.RESERVATIONS,
+              {
+                params: {
+                  page_size: 1000,
+                },
+              },
+            );
+
+          setLocalReservations(
+            extractList<PaymentReservation>(
+              reservationResponse.data,
+            ),
+          );
+        } else {
+          setLocalReservations(reservations);
+        }
+
+        /*
+         * COMPTES FINANCIERS
+         *
+         * IMPORTANT :
+         * on utilise FINANCIAL_ACCOUNTS,
+         * pas ACCOUNTS.
+         */
+        if (accounts.length === 0) {
+          const accountResponse =
+            await api.get(
+              API_ROUTES.FINANCIAL_ACCOUNTS,
+              {
+                params: {
+                  page_size: 1000,
+                },
+              },
+            );
+
+          setLocalAccounts(
+            extractList<PaymentAccount>(
+              accountResponse.data,
+            ),
+          );
+        } else {
+          setLocalAccounts(accounts);
+        }
+      } catch (loadError) {
+        setError(
+          getBackendError(loadError),
+        );
+      } finally {
+        setLoadingData(false);
+      }
+    };
+
+    void loadData();
+  }, [
+    open,
+    reservation,
+    reservations,
+    accounts,
+  ]);
+
+  /* ============================================================
+     FERMETURE
+  ============================================================ */
+
+  if (!open) {
+    return null;
   }
 
+  /* ============================================================
+     RESERVATION SELECTIONNEE
+  ============================================================ */
 
-setErrorMessage("");
-
-
-
-setSuccessMessage("");
-
-setForm({
-  ...EMPTY_FORM,
-
-  reservation: reservation?.id
-    ? String(reservation.id)
-    : "",
-
-  payment_date:
-    getTodayDateTime(),
-});
-
-
-}, [
-isOpen,
-reservation,
-]);
-
-/**
-
-* =========================================================
-* FERMETURE
-* =========================================================
-  */
-  const handleClose = () => {
-  if (isSubmitting) {
-  return;
-  }
-
-
-setErrorMessage("");
-
-
-
-setSuccessMessage("");
-
-onClose();
-
-
-};
-
-/**
-
-* =========================================================
-* MODIFICATION CHAMP
-* =========================================================
-  */
-  const handleChange = (
-  field: keyof PaymentFormData,
-  value: string,
-  ) => {
-  setForm((previous) => ({
-  ...previous,
-  [field]: value,
-  }));
-
-
-if (errorMessage) {
-
-
-
-  setErrorMessage("");
-}
-
-
-};
-
-/**
-
-* =========================================================
-* RESERVATION SELECTIONNEE
-* =========================================================
-  */
   const selectedReservation =
-  reservations.find(
-  (item) =>
-  String(item.id) ===
-  form.reservation,
-  ) ?? reservation;
+    localReservations.find(
+      (item) =>
+        item.id === form.reservation,
+    ) ?? reservation;
 
-/**
+  /* ============================================================
+     MONTANTS
+  ============================================================ */
 
-* =========================================================
-* CLIENT
-* =========================================================
-  */
-  const clientName =
-  selectedReservation?.client
-  ?.full_name ??
-  selectedReservation?.client_name ??
-  "Client non renseigné";
-
-const clientPhone =
-selectedReservation?.client
-?.phone ?? "";
-
-/**
-
-* =========================================================
-* SOUMISSION
-* =========================================================
-  */
-  const handleSubmit = async (
-  event: FormEvent<HTMLFormElement>,
-  ) => {
-  event.preventDefault();
-
-
-if (isSubmitting) {
-
-
-
-  return;
-}
-
-setErrorMessage("");
-setSuccessMessage("");
-
-/**
- * Reservation obligatoire
- */
-if (!form.reservation) {
-  setErrorMessage(
-    "Veuillez sélectionner une réservation.",
+  const totalAmount = getTotalAmount(
+    selectedReservation,
   );
 
-  return;
-}
-
-/**
- * Montant
- */
-const amount =
-  Number(form.amount);
-
-if (
-  !form.amount ||
-  Number.isNaN(amount)
-) {
-  setErrorMessage(
-    "Veuillez saisir un montant valide.",
+  const paidAmount = getPaidAmount(
+    selectedReservation,
   );
 
-  return;
-}
-
-if (amount <= 0) {
-  setErrorMessage(
-    "Le montant doit être supérieur à zéro.",
-  );
-
-  return;
-}
-
-/**
- * Date
- */
-if (!form.payment_date) {
-  setErrorMessage(
-    "Veuillez sélectionner la date du paiement.",
-  );
-
-  return;
-}
-
-/**
- * Référence obligatoire
- * pour virement / Mobile Money
- */
-if (
-  form.method ===
-    "VIREMENT" ||
-  form.method ===
-    "MOBILE_MONEY"
-) {
-  if (
-    !form.reference.trim()
-  ) {
-    setErrorMessage(
-      "La référence est obligatoire pour un virement ou un paiement Mobile Money.",
+  const refundedAmount =
+    getRefundedAmount(
+      selectedReservation,
     );
 
-    return;
-  }
-}
+  const remainingAmount =
+    getRemainingAmount(
+      selectedReservation,
+    );
 
-/**
- * =======================================================
- * PAYLOAD DJANGO
- * =======================================================
- *
- * UN SEUL POST /payments/
- */
-const payload: Record<
-  string,
-  unknown
-> = {
-  reservation:
-    Number(form.reservation),
+  /*
+   * Sécurité supplémentaire côté frontend :
+   *
+   * Le montant payable ne doit jamais dépasser :
+   *
+   * total - net payé
+   */
+  const calculatedRemaining =
+    Math.max(
+      totalAmount - paidAmount,
+      0,
+    );
 
-  amount:
-    amount.toFixed(2),
-
-  payment_date:
-    new Date(
-      form.payment_date,
-    ).toISOString(),
-
-  method:
-    form.method,
-
-  reference:
-    form.reference.trim() ||
-    null,
-
-  operator:
-    form.operator.trim() ||
-    null,
-
-  financial_account:
-    form.financial_account
-      ? Number(
-          form.financial_account,
+  const maximumPayment =
+    selectedReservation
+      ? Math.min(
+          remainingAmount,
+          calculatedRemaining,
         )
-      : null,
+      : 0;
 
-  status:
-    form.status,
-};
+  /* ============================================================
+     COMPTE PAR DEFAUT
+  ============================================================ */
 
-try {
-  setIsSubmitting(true);
-
-  console.log(
-    "💰 [POST PAYMENT] Payload envoyé à Django :",
-    payload,
+  const activeAccounts = useMemo(
+    () =>
+      localAccounts.filter(
+        (account) =>
+          account.is_active !== false,
+      ),
+    [localAccounts],
   );
 
-  const response =
-    await api.post(
-      "/payments/",
-      payload,
+  /* ============================================================
+     CHOIX RESERVATION
+  ============================================================ */
+
+  function handleReservationChange(
+    value: string,
+  ) {
+    const id = Number(value);
+
+    const selected =
+      localReservations.find(
+        (item) => item.id === id,
+      );
+
+    const selectedRemaining =
+      getRemainingAmount(selected);
+
+    setForm((previous) => ({
+      ...previous,
+
+      reservation:
+        id > 0 ? id : null,
+
+      amount:
+        selectedRemaining > 0
+          ? selectedRemaining.toFixed(2)
+          : "",
+    }));
+  }
+
+  /* ============================================================
+     SUBMIT
+  ============================================================ */
+
+  const handleSubmit = async (
+    event: FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+
+    setError("");
+
+    if (!form.reservation) {
+      setError(
+        "Veuillez sélectionner une réservation.",
+      );
+      return;
+    }
+
+    const amount = Number(
+      form.amount,
     );
 
-  const backendData =
-    response.data;
+    if (
+      !Number.isFinite(amount) ||
+      amount <= 0
+    ) {
+      setError(
+        "Le montant doit être supérieur à zéro.",
+      );
+      return;
+    }
 
-  console.log(
-    "✅ [POST PAYMENT] Paiement enregistré :",
-    backendData,
-  );
+    if (maximumPayment <= 0) {
+      setError(
+        "Cette réservation ne possède plus de montant à payer.",
+      );
+      return;
+    }
 
-  setSuccessMessage(
-    "Paiement enregistré avec succès.",
-  );
+    if (amount > maximumPayment) {
+      setError(
+        `Le montant ne peut pas dépasser le reste à payer : ${maximumPayment.toFixed(
+          2,
+        )} $.`,
+      );
+      return;
+    }
 
-  /**
-   * Le parent recharge la liste.
-   */
-  onSuccess?.(
-    backendData,
-  );
+    /*
+     * Le compte financier est facultatif ici.
+     *
+     * Le backend peut utiliser automatiquement
+     * la caisse active si aucun compte n'est fourni,
+     * selon ta logique métier.
+     */
 
-  /**
-   * Fermeture après succès.
-   */
-  window.setTimeout(() => {
-    onClose();
-  }, 500);
-} catch (error: unknown) {
-  console.error(
-    "❌ [POST PAYMENT] Erreur backend :",
-    error,
-  );
+    try {
+      setLoading(true);
 
-  const message =
-    extractBackendError(
-      error,
-    );
+      /*
+       * Protection contre les doubles clics / doubles paiements.
+       *
+       * Le backend doit utiliser cette clé avec
+       * une contrainte d'unicité.
+       */
+      const idempotencyKey =
+        crypto.randomUUID();
 
-  setErrorMessage(
-    message,
-  );
-} finally {
-  setIsSubmitting(false);
-}
+      const payload = {
+        reservation:
+          form.reservation,
 
+        financial_account:
+          form.financial_account,
 
-};
+        amount,
 
-if (!isOpen) {
-return null;
-}
+        method:
+          form.method,
 
-return (
-<div
-className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-onMouseDown={(event) => {
-if (
-event.target ===
-event.currentTarget
-) {
-handleClose();
-}
-}}
-> <div
-     className="w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl"
-     role="dialog"
-     aria-modal="true"
-     aria-labelledby="payment-modal-title"
-   >
+        reference:
+          form.reference.trim() ||
+          null,
 
+        operator:
+          form.operator.trim() ||
+          null,
 
-    {/* ================================================= */}
-    {/* HEADER */}
-    {/* ================================================= */}
+        /*
+         * Le paiement est créé en attente.
+         * La validation financière est faite
+         * ensuite par l'action /valider/.
+         */
+        status: "EN_ATTENTE",
 
-    <div className="flex items-center justify-between border-b border-slate-700 px-6 py-5">
+        idempotency_key:
+          idempotencyKey,
+      };
 
-      <div>
-        <h2
-          id="payment-modal-title"
-          className="text-xl font-bold text-white"
+      await api.post(
+        API_ROUTES.PAYMENTS,
+        payload,
+      );
+
+      onSuccess?.();
+      onClose();
+    } catch (submitError) {
+      setError(
+        getBackendError(
+          submitError,
+        ),
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ============================================================
+     RENDER
+  ============================================================ */
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+      <div className="w-full max-w-2xl rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl">
+
+        {/* HEADER */}
+        <div className="flex items-center justify-between border-b border-slate-700 px-6 py-4">
+          <div>
+            <h2 className="text-xl font-bold text-white">
+              Nouveau paiement
+            </h2>
+
+            <p className="mt-1 text-sm text-slate-400">
+              Enregistrer un paiement pour une réservation.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={loading}
+            className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-800 hover:text-white disabled:opacity-50"
+            aria-label="Fermer"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* BODY */}
+        <form
+          onSubmit={handleSubmit}
+          className="space-y-5 p-6"
         >
-          Enregistrer un paiement
-        </h2>
-
-        <p className="mt-1 text-sm text-slate-400">
-          Ajoutez un encaissement lié à une réservation.
-        </p>
-      </div>
-
-      <button
-        type="button"
-        onClick={handleClose}
-        disabled={isSubmitting}
-        className="rounded-lg px-3 py-2 text-xl text-slate-400 transition hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-        aria-label="Fermer"
-      >
-        ×
-      </button>
-
-    </div>
-
-    {/* ================================================= */}
-    {/* FORMULAIRE */}
-    {/* ================================================= */}
-
-    <form
-      onSubmit={handleSubmit}
-      className="max-h-[80vh] overflow-y-auto"
-    >
-
-      <div className="space-y-5 p-6">
-
-        {/* ================================================= */}
-        {/* ERREUR */}
-        {/* ================================================= */}
-
-        {errorMessage && (
-          <div className="whitespace-pre-line rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-
-            <div className="font-semibold">
-              ❌ Enregistrement impossible
+          {error && (
+            <div className="whitespace-pre-line rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
+              {error}
             </div>
-
-            <div className="mt-1">
-              {errorMessage}
-            </div>
-
-          </div>
-        )}
-
-        {/* ================================================= */}
-        {/* SUCCÈS */}
-        {/* ================================================= */}
-
-        {successMessage && (
-          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
-            {successMessage}
-          </div>
-        )}
-
-        {/* ================================================= */}
-        {/* RESERVATION */}
-        {/* ================================================= */}
-
-        <div>
-
-          <label
-            htmlFor="payment-reservation"
-            className="mb-2 block text-sm font-medium text-slate-200"
-          >
-            Réservation
-
-            <span className="ml-1 text-red-400">
-              *
-            </span>
-          </label>
-
-          <select
-            id="payment-reservation"
-            value={
-              form.reservation
-            }
-            onChange={(event) =>
-              handleChange(
-                "reservation",
-                event.target.value,
-              )
-            }
-            disabled={
-              isSubmitting ||
-              Boolean(
-                reservation?.id,
-              )
-            }
-            className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-white outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-
-            <option value="">
-              Sélectionner une réservation
-            </option>
-
-            {reservations.map(
-              (item) => (
-                <option
-                  key={item.id}
-                  value={item.id}
-                >
-                  {item.reservation_number ??
-                    `Réservation #${item.id}`}
-                  {" — "}
-                  {item.client
-                    ?.full_name ??
-                    item.client_name ??
-                    "Client non renseigné"}
-                </option>
-              ),
-            )}
-
-          </select>
-
-        </div>
-
-        {/* ================================================= */}
-        {/* INFORMATIONS RESERVATION */}
-        {/* ================================================= */}
-
-        {selectedReservation && (
-          <div className="rounded-xl border border-slate-700 bg-slate-800/60 p-4">
-
-            <div className="grid gap-4 sm:grid-cols-2">
-
-              <div>
-
-                <p className="text-xs uppercase tracking-wide text-slate-500">
-                  Réservation
-                </p>
-
-                <p className="mt-1 font-semibold text-white">
-                  {selectedReservation.reservation_number ??
-                    `#${selectedReservation.id}`}
-                </p>
-
-              </div>
-
-              <div>
-
-                <p className="text-xs uppercase tracking-wide text-slate-500">
-                  Client
-                </p>
-
-                <p className="mt-1 font-semibold text-white">
-                  {clientName}
-                </p>
-
-                {clientPhone && (
-                  <p className="mt-1 text-sm text-slate-400">
-                    {clientPhone}
-                  </p>
-                )}
-
-              </div>
-
-              {(selectedReservation
-                .tarif?.amount ??
-                selectedReservation
-                  .total_amount) !==
-                undefined &&
-                (selectedReservation
-                  .tarif?.amount ??
-                  selectedReservation
-                    .total_amount) !==
-                  null && (
-                  <div className="sm:col-span-2">
-
-                    <p className="text-xs uppercase tracking-wide text-slate-500">
-                      Tarif réservation
-                    </p>
-
-                    <p className="mt-1 font-semibold text-emerald-400">
-                      {formatMoney(
-                        selectedReservation
-                          .tarif
-                          ?.amount ??
-                          selectedReservation
-                            .total_amount,
-                      )}{" "}
-                      FCFA
-                    </p>
-
-                  </div>
-                )}
-
-            </div>
-
-          </div>
-        )}
-
-        {/* ================================================= */}
-        {/* MONTANT */}
-        {/* ================================================= */}
-
-        <div>
-
-          <label
-            htmlFor="payment-amount"
-            className="mb-2 block text-sm font-medium text-slate-200"
-          >
-            Montant
-
-            <span className="ml-1 text-red-400">
-              *
-            </span>
-          </label>
-
-          <div className="relative">
-
-            <input
-              id="payment-amount"
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={form.amount}
-              onChange={(event) =>
-                handleChange(
-                  "amount",
-                  event.target.value,
-                )
-              }
-              disabled={
-                isSubmitting
-              }
-              placeholder="0.00"
-              className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 pr-16 text-white outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-            />
-
-            <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-500">
-              $
-            </span>
-
-          </div>
-
-        </div>
-
-        {/* ================================================= */}
-        {/* MODE DE PAIEMENT */}
-        {/* ================================================= */}
-
-        <div>
-
-          <label
-            htmlFor="payment-method"
-            className="mb-2 block text-sm font-medium text-slate-200"
-          >
-            Mode de paiement
-
-            <span className="ml-1 text-red-400">
-              *
-            </span>
-          </label>
-
-          <select
-            id="payment-method"
-            value={
-              form.method
-            }
-            onChange={(event) =>
-              handleChange(
-                "method",
-                event.target
-                  .value,
-              )
-            }
-            disabled={
-              isSubmitting
-            }
-            className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-white outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-
-            <option value="ESPECES">
-              Espèces
-            </option>
-
-            <option value="VIREMENT">
-              Virement bancaire
-            </option>
-
-            <option value="MOBILE_MONEY">
-              Mobile Money
-            </option>
-
-          </select>
-
-        </div>
-
-        {/* ================================================= */}
-        {/* COMPTE FINANCIER */}
-        {/* ================================================= */}
-
-        <div>
-
-          <label
-            htmlFor="payment-account"
-            className="mb-2 block text-sm font-medium text-slate-200"
-          >
-            Compte financier
-
-            <span className="ml-2 text-xs font-normal text-slate-500">
-              facultatif
-            </span>
-          </label>
-
-          <select
-            id="payment-account"
-            value={
-              form.financial_account
-            }
-            onChange={(event) =>
-              handleChange(
-                "financial_account",
-                event.target
-                  .value,
-              )
-            }
-            disabled={
-              isSubmitting
-            }
-            className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-white outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-
-            <option value="">
-              Aucun compte sélectionné
-            </option>
-
-            {accounts
-              .filter(
-                (account) =>
-                  account.is_active !==
-                  false,
-              )
-              .map(
-                (account) => (
-                  <option
-                    key={
-                      account.id
-                    }
-                    value={
-                      account.id
-                    }
-                  >
-                    {account.name}
-
-                    {account.account_type
-                      ? ` — ${account.account_type}`
-                      : ""}
-
-                    {account.balance !==
-                      undefined &&
-                    account.balance !==
-                      null
-                      ? ` — ${formatMoney(
-                          account.balance,
-                        )} FCFA`
-                      : ""}
-                  </option>
-                ),
-              )}
-
-          </select>
-
-          <p className="mt-1 text-xs text-slate-500">
-            Le compte peut rester vide. Le backend reste responsable de la gestion financière.
-          </p>
-
-        </div>
-
-        {/* ================================================= */}
-        {/* DATE */}
-        {/* ================================================= */}
-
-        <div>
-
-          <label
-            htmlFor="payment-date"
-            className="mb-2 block text-sm font-medium text-slate-200"
-          >
-            Date du paiement
-
-            <span className="ml-1 text-red-400">
-              *
-            </span>
-          </label>
-
-          <input
-            id="payment-date"
-            type="datetime-local"
-            value={
-              form.payment_date
-            }
-            onChange={(event) =>
-              handleChange(
-                "payment_date",
-                event.target
-                  .value,
-              )
-            }
-            disabled={
-              isSubmitting
-            }
-            className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-white outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-          />
-
-        </div>
-
-        {/* ================================================= */}
-        {/* REFERENCE */}
-        {/* ================================================= */}
-
-        <div>
-
-          <label
-            htmlFor="payment-reference"
-            className="mb-2 block text-sm font-medium text-slate-200"
-          >
-            Référence
-
-            {(form.method ===
-              "VIREMENT" ||
-              form.method ===
-                "MOBILE_MONEY") && (
-              <span className="ml-1 text-red-400">
-                *
-              </span>
-            )}
-
-          </label>
-
-          <input
-            id="payment-reference"
-            type="text"
-            value={
-              form.reference
-            }
-            onChange={(event) =>
-              handleChange(
-                "reference",
-                event.target
-                  .value,
-              )
-            }
-            disabled={
-              isSubmitting
-            }
-            placeholder={
-              form.method ===
-              "MOBILE_MONEY"
-                ? "Référence Mobile Money"
-                : form.method ===
-                    "VIREMENT"
-                  ? "Référence du virement"
-                  : "Référence éventuelle"
-            }
-            className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white placeholder:text-slate-500 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-          />
-
-        </div>
-
-        {/* ================================================= */}
-        {/* OPERATEUR */}
-        {/* ================================================= */}
-
-        <div>
-
-          <label
-            htmlFor="payment-operator"
-            className="mb-2 block text-sm font-medium text-slate-200"
-          >
-            Opérateur
-
-            <span className="ml-2 text-xs font-normal text-slate-500">
-              facultatif
-            </span>
-          </label>
-
-          <input
-            id="payment-operator"
-            type="text"
-            value={
-              form.operator
-            }
-            onChange={(event) =>
-              handleChange(
-                "operator",
-                event.target
-                  .value,
-              )
-            }
-            disabled={
-              isSubmitting
-            }
-            placeholder="Nom de l'opérateur"
-            className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white placeholder:text-slate-500 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-          />
-
-        </div>
-
-        {/* ================================================= */}
-        {/* STATUT */}
-        {/* ================================================= */}
-
-        <div>
-
-          <label
-            htmlFor="payment-status"
-            className="mb-2 block text-sm font-medium text-slate-200"
-          >
-            Statut
-          </label>
-
-          <select
-            id="payment-status"
-            value={
-              form.status
-            }
-            onChange={(event) =>
-              handleChange(
-                "status",
-                event.target
-                  .value,
-              )
-            }
-            disabled={
-              isSubmitting
-            }
-            className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-white outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-
-            <option value="VALIDE">
-              Validé
-            </option>
-
-            <option value="EN_ATTENTE">
-              En attente
-            </option>
-
-          </select>
-
-        </div>
-
-      </div>
-
-      {/* ================================================= */}
-      {/* FOOTER */}
-      {/* ================================================= */}
-
-      <div className="flex flex-col-reverse gap-3 border-t border-slate-700 bg-slate-950/50 px-6 py-4 sm:flex-row sm:justify-end">
-
-        <button
-          type="button"
-          onClick={handleClose}
-          disabled={
-            isSubmitting
-          }
-          className="rounded-xl border border-slate-700 px-5 py-3 text-sm font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Annuler
-        </button>
-
-        <button
-          type="submit"
-          disabled={
-            isSubmitting
-          }
-          className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-
-          {isSubmitting ? (
-            <span className="flex items-center justify-center gap-2">
-
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-
-              Enregistrement...
-
-            </span>
-          ) : (
-            "Enregistrer le paiement"
           )}
 
-        </button>
+          {loadingData ? (
+            <div className="flex items-center justify-center py-8 text-slate-400">
+              <Loader2
+                className="mr-2 animate-spin"
+                size={20}
+              />
 
+              Chargement...
+            </div>
+          ) : (
+            <>
+              {/* RESERVATION */}
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-300">
+                  Réservation
+                  <span className="ml-1 text-red-400">
+                    *
+                  </span>
+                </label>
+
+                <select
+                  value={
+                    form.reservation ??
+                    ""
+                  }
+                  onChange={(event) =>
+                    handleReservationChange(
+                      event.target.value,
+                    )
+                  }
+                  disabled={
+                    Boolean(reservation) ||
+                    loading
+                  }
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  required
+                >
+                  <option value="">
+                    Sélectionner une réservation
+                  </option>
+
+                  {localReservations
+                    .filter(
+                      (item) =>
+                        getRemainingAmount(
+                          item,
+                        ) > 0,
+                    )
+                    .map((item) => (
+                      <option
+                        key={item.id}
+                        value={item.id}
+                      >
+                        {item.reservation_number ||
+                          `Réservation #${item.id}`}
+                        {" - "}
+                        {item.client_full_name ||
+                          item.client_name ||
+                          "Client"}
+                        {" - reste "}
+                        {getRemainingAmount(
+                          item,
+                        ).toFixed(2)}
+                        {" $"}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              {/* DETAILS RESERVATION */}
+              {selectedReservation && (
+                <div className="rounded-lg border border-slate-700 bg-slate-800/70 p-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+
+                    <div>
+                      <p className="text-xs text-slate-400">
+                        Total
+                      </p>
+
+                      <p className="mt-1 font-semibold text-white">
+                        {totalAmount.toFixed(
+                          2,
+                        )}{" "}
+                        $
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-slate-400">
+                        Net payé
+                      </p>
+
+                      <p className="mt-1 font-semibold text-green-400">
+                        {paidAmount.toFixed(
+                          2,
+                        )}{" "}
+                        $
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-slate-400">
+                        Remboursé
+                      </p>
+
+                      <p className="mt-1 font-semibold text-orange-400">
+                        {refundedAmount.toFixed(
+                          2,
+                        )}{" "}
+                        $
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-slate-400">
+                        Reste à payer
+                      </p>
+
+                      <p className="mt-1 font-semibold text-yellow-400">
+                        {maximumPayment.toFixed(
+                          2,
+                        )}{" "}
+                        $
+                      </p>
+                    </div>
+
+                  </div>
+                </div>
+              )}
+
+              {/* COMPTE */}
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-300">
+                  Compte financier
+                </label>
+
+                <select
+                  value={
+                    form.financial_account ??
+                    ""
+                  }
+                  onChange={(event) => {
+                    setForm(
+                      (previous) => ({
+                        ...previous,
+                        financial_account:
+                          Number(
+                            event.target
+                              .value,
+                          ) || null,
+                      }),
+                    );
+                  }}
+                  disabled={loading}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none focus:border-blue-500 disabled:opacity-60"
+                >
+                  <option value="">
+                    Utiliser la caisse automatique
+                  </option>
+
+                  {activeAccounts.map(
+                    (account) => (
+                      <option
+                        key={account.id}
+                        value={account.id}
+                      >
+                        {account.name}
+
+                        {account.balance !==
+                          undefined
+                          ? ` - ${Number(
+                              account.balance,
+                            ).toFixed(2)} $`
+                          : ""}
+                      </option>
+                    ),
+                  )}
+                </select>
+              </div>
+
+              {/* METHODE */}
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-300">
+                  Méthode de paiement
+                  <span className="ml-1 text-red-400">
+                    *
+                  </span>
+                </label>
+
+                <select
+                  value={
+                    form.method
+                  }
+                  onChange={(event) => {
+                    setForm(
+                      (previous) => ({
+                        ...previous,
+                        method:
+                          event.target
+                            .value,
+                      }),
+                    );
+                  }}
+                  disabled={loading}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none focus:border-blue-500"
+                  required
+                >
+                  <option value="ESPECES">
+                    Espèces
+                  </option>
+
+                  <option value="VIREMENT">
+                    Virement bancaire
+                  </option>
+
+                  <option value="MOBILE_MONEY">
+                    Mobile Money
+                  </option>
+                </select>
+              </div>
+
+              {/* MONTANT */}
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-300">
+                  Montant
+                  <span className="ml-1 text-red-400">
+                    *
+                  </span>
+                </label>
+
+                <input
+                  type="number"
+                  min="0.01"
+                  max={
+                    maximumPayment >
+                    0
+                      ? maximumPayment
+                      : undefined
+                  }
+                  step="0.01"
+                  value={
+                    form.amount
+                  }
+                  onChange={(event) => {
+                    setForm(
+                      (previous) => ({
+                        ...previous,
+                        amount:
+                          event.target
+                            .value,
+                      }),
+                    );
+                  }}
+                  disabled={
+                    loading ||
+                    maximumPayment <=
+                      0
+                  }
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none focus:border-blue-500 disabled:opacity-60"
+                  placeholder="0.00"
+                  required
+                />
+
+                {selectedReservation && (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Maximum autorisé :{" "}
+                    <span className="font-semibold text-yellow-400">
+                      {maximumPayment.toFixed(
+                        2,
+                      )}{" "}
+                      $
+                    </span>
+                  </p>
+                )}
+              </div>
+
+              {/* REFERENCE */}
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-300">
+                  Référence
+                </label>
+
+                <input
+                  type="text"
+                  value={
+                    form.reference
+                  }
+                  onChange={(event) => {
+                    setForm(
+                      (previous) => ({
+                        ...previous,
+                        reference:
+                          event.target
+                            .value,
+                      }),
+                    );
+                  }}
+                  disabled={loading}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none placeholder:text-slate-500 focus:border-blue-500"
+                  placeholder="Référence bancaire, transaction..."
+                />
+              </div>
+
+              {/* OPERATEUR */}
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-300">
+                  Opérateur
+                </label>
+
+                <input
+                  type="text"
+                  value={
+                    form.operator
+                  }
+                  onChange={(event) => {
+                    setForm(
+                      (previous) => ({
+                        ...previous,
+                        operator:
+                          event.target
+                            .value,
+                      }),
+                    );
+                  }}
+                  disabled={loading}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none placeholder:text-slate-500 focus:border-blue-500"
+                  placeholder="Nom de l'opérateur"
+                />
+              </div>
+
+              {/* INFORMATION */}
+              <div className="rounded-lg border border-blue-900/50 bg-blue-950/30 p-4 text-sm text-blue-200">
+                Le paiement sera enregistré en
+                <strong className="mx-1">
+                  attente
+                </strong>
+                puis devra être validé avant
+                l'entrée définitive dans la caisse /
+                le compte financier.
+              </div>
+            </>
+          )}
+
+          {/* ACTIONS */}
+          <div className="flex justify-end gap-3 border-t border-slate-700 pt-5">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={loading}
+              className="rounded-lg border border-slate-600 px-5 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+            >
+              Annuler
+            </button>
+
+            <button
+              type="submit"
+              disabled={
+                loading ||
+                loadingData ||
+                !form.reservation ||
+                maximumPayment <= 0
+              }
+              className="flex items-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading && (
+                <Loader2
+                  size={18}
+                  className="mr-2 animate-spin"
+                />
+              )}
+
+              Enregistrer le paiement
+            </button>
+          </div>
+        </form>
       </div>
-
-    </form>
-
-  </div>
-</div>
-
-);
+    </div>
+  );
 }
+
+

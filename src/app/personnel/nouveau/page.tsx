@@ -54,6 +54,7 @@ export default function NouveauPersonnelPage() {
   const [prenom, setPrenom] = useState("");
   const [telephone, setTelephone] = useState("");
   const [email, setEmail] = useState("");
+  const [adresse, setAdresse] = useState("");
   const [fonction, setFonction] = useState("AUTRE");
   const [statut, setStatut] = useState("ACTIF");
 
@@ -71,6 +72,7 @@ export default function NouveauPersonnelPage() {
     const prenomValue = prenom.trim();
     const telephoneValue = telephone.trim();
     const emailValue = email.trim();
+    const adresseValue = adresse.trim();
 
     if (!nomValue) {
       setError("Le nom est obligatoire.");
@@ -95,11 +97,13 @@ export default function NouveauPersonnelPage() {
         prenom: prenomValue,
         telephone: telephoneValue || null,
         email: emailValue || null,
+        adresse: adresseValue || null,
         fonction,
         statut,
       });
 
       router.push("/personnel");
+      router.refresh();
     } catch (error: unknown) {
       console.error(
         "Erreur création personnel :",
@@ -145,6 +149,7 @@ export default function NouveauPersonnelPage() {
   return (
     <div className="min-h-full p-6">
       <section className="mx-auto max-w-3xl space-y-6">
+
         {/* EN-TÊTE */}
         <div className="flex items-start gap-4">
           <Link
@@ -166,19 +171,18 @@ export default function NouveauPersonnelPage() {
           </div>
         </div>
 
+        {/* ERREUR */}
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
         {/* FORMULAIRE */}
         <form
           onSubmit={handleSubmit}
           className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm"
         >
-          {/* ERREUR */}
-          {error && (
-            <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-
-          {/* INFORMATIONS */}
           <div className="mb-6">
             <h2 className="text-lg font-semibold text-gray-900">
               Informations du personnel
@@ -189,8 +193,8 @@ export default function NouveauPersonnelPage() {
             </p>
           </div>
 
-          {/* CHAMPS */}
           <div className="grid gap-5 md:grid-cols-2">
+
             {/* NOM */}
             <div>
               <label
@@ -289,6 +293,30 @@ export default function NouveauPersonnelPage() {
               />
             </div>
 
+            {/* ADRESSE */}
+            <div className="md:col-span-2">
+              <label
+                htmlFor="adresse"
+                className="mb-1.5 block text-sm font-medium text-gray-700"
+              >
+                Adresse
+              </label>
+
+              <textarea
+                id="adresse"
+                name="adresse"
+                value={adresse}
+                onChange={(event) =>
+                  setAdresse(event.target.value)
+                }
+                placeholder="Ex. Avenue ..., Commune ..., Kinshasa"
+                rows={3}
+                disabled={saving}
+                autoComplete="street-address"
+                className="w-full resize-none rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-gray-100"
+              />
+            </div>
+
             {/* FONCTION */}
             <div>
               <label
@@ -382,4 +410,3 @@ export default function NouveauPersonnelPage() {
     </div>
   );
 }
-

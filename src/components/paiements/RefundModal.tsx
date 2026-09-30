@@ -1,437 +1,404 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import {
-  AlertCircle,
-  Loader2,
-  RotateCcw,
-  X,
-} from "lucide-react";
+import { Loader2, X } from "lucide-react";
 
 import api from "@/lib/api";
 import { API_ROUTES } from "@/lib/api-routes";
 
+/* ============================================================
+   TYPES
+============================================================ */
+
 export interface RefundPayment {
   id: number;
-
-  reservation: number | null;
-  reservation_number: string | null;
-
-  client_name: string | null;
+  reservation?: number | null;
+  reservation_number?: string | null;
+  client_name?: string | null;
+  client_full_name?: string | null;
 
   amount: string | number;
 
-  method: string;
-  method_display?: string;
+  method?: string | null;
+  financial_account?: number | null;
 
-  financial_account: number | null;
-  account_name?: string | null;
+  status?: string | null;
 
-  status: string;
+  refunded_amount?: string | number;
+  refundable_amount?: string | number;
+  already_refunded?: string | number;
 }
 
 interface RefundModalProps {
+  open: boolean;
   payment: RefundPayment | null;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess?: () => void;
 }
 
-interface RefundForm {
-  amount: string;
-  reason: string;
-}
+/* ============================================================
+   ERROR
+============================================================ */
 
-const INITIAL_FORM: RefundForm = {
-  amount: "",
-  reason: "",
-};
+function getBackendError(error: unknown): string {
+  const axiosError = error as {
+    response?: {
+      data?: unknown;
+    };
+    message?: string;
+  };
 
-function getErrorMessage(error: unknown): string {
+  const data = axiosError?.response?.data;
 
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "response" in error
-  ) {
+  if (typeof data === "string") {
+    return data;
+  }
 
-    const response = (
-      error as {
-        response?: {
-          data?: unknown;
-        };
-      }
-    ).response;
-
-    const data = response?.data;
-
-    if (
-      typeof data === "object" &&
-      data !== null
-    ) {
-
-      const detail = (
-        data as {
-          detail?: unknown;
+  if (data && typeof data === "object") {
+    const values = Object.entries(data as Record<string, unknown>)
+      .map(([key, value]) => {
+        if (Array.isArray(value)) {
+          return `${key}: ${value.join(", ")}`;
         }
-      ).detail;
 
-      if (typeof detail === "string") {
-        return detail;
-      }
-
-      const amount = (
-        data as {
-          amount?: unknown;
+        if (typeof value === "object" && value !== null) {
+          return `${key}: ${JSON.stringify(value)}`;
         }
-      ).amount;
 
-      if (Array.isArray(amount)) {
-        return String(amount[0]);
-      }
+        return `${key}: ${String(value)}`;
+      })
+      .join("\n");
 
-      if (typeof amount === "string") {
-        return amount;
-      }
+    if (values) {
+      return values;
     }
   }
 
-  return "Impossible d'effectuer le remboursement.";
+  return axiosError?.message || "Une erreur est survenue.";
 }
 
+/* ============================================================
+   COMPONENT
+============================================================ */
+
 export default function RefundModal({
+  open,
   payment,
   onClose,
   onSuccess,
 }: RefundModalProps) {
-
-  const [form, setForm] = useState<RefundForm>(
-    INITIAL_FORM
-  );
+  const [amount, setAmount] = useState("");
+  const [method, setMethod] = useState("ESPECES");
+  const [reason, setReason] = useState("");
+  const [reference, setReference] = useState("");
 
   const [loading, setLoading] = useState(false);
-
   const [error, setError] = useState("");
 
-  const [maxRefundable, setMaxRefundable] = useState(0);
-
-  // ==========================================================
-  // INITIALISATION
-  // ==========================================================
+  /* ============================================================
+     INITIALISATION
+  ============================================================ */
 
   useEffect(() => {
-
-    if (!payment) {
+    if (!open || !payment) {
       return;
     }
 
-    setForm({
-      amount: "",
-      reason: "",
-    });
-
     setError("");
 
-    setMaxRefundable(
-      Number(payment.amount) || 0
-    );
+    const refundable =
+      payment.refundable_amount !== undefined
+        ? Number(payment.refundable_amount)
+        : Math.max(
+            Number(payment.amount || 0) -
+              Number(payment.already_refunded || 0),
+            0,
+          );
 
-  }, [payment]);
+    setAmount(refundable > 0 ? refundable.toFixed(2) : "");
+    setMethod(payment.method || "ESPECES");
+    setReason("");
+    setReference("");
+  }, [open, payment]);
 
-  if (!payment) {
+  if (!open || !payment) {
     return null;
   }
 
-  const paymentAmount =
-    Number(payment.amount) || 0;
+  /* ============================================================
+     MONTANT REMBOURSABLE
+  ============================================================ */
 
-  const method =
-    payment.method;
+  const paymentAmount = Number(payment.amount || 0);
 
-  const methodLabel =
-    payment.method_display ||
-    method;
+  const alreadyRefunded =
+    payment.already_refunded !== undefined
+      ? Number(payment.already_refunded)
+      : Number(payment.refunded_amount || 0);
 
-  // ==========================================================
-  // SOUMISSION
-  // ==========================================================
+  const refundableAmount =
+    payment.refundable_amount !== undefined
+      ? Number(payment.refundable_amount)
+      : Math.max(paymentAmount - alreadyRefunded, 0);
+
+  /* ============================================================
+     SUBMIT
+  ============================================================ */
 
   const handleSubmit = async (
-    event: FormEvent<HTMLFormElement>
+    event: FormEvent<HTMLFormElement>,
   ) => {
-
     event.preventDefault();
 
     setError("");
 
-    const amount = Number(
-      form.amount.replace(",", ".")
-    );
+    const refundAmount = Number(amount);
 
-    if (!Number.isFinite(amount) || amount <= 0) {
-
+    if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
       setError(
-        "Veuillez saisir un montant valide."
+        "Le montant du remboursement doit être supérieur à zéro.",
       );
-
       return;
     }
 
-    if (amount > maxRefundable) {
-
+    if (refundAmount > refundableAmount) {
       setError(
-        `Le montant maximum remboursable est de ${maxRefundable.toLocaleString(
-          "fr-FR"
-        )} $.`
+        `Le remboursement ne peut pas dépasser ${refundableAmount.toFixed(
+          2,
+        )} $.`,
       );
+      return;
+    }
 
+    if (!payment.reservation) {
+      setError(
+        "Ce paiement n'est associé à aucune réservation.",
+      );
+      return;
+    }
+
+    if (!payment.financial_account) {
+      setError(
+        "Ce paiement n'est associé à aucun compte financier.",
+      );
       return;
     }
 
     try {
-
       setLoading(true);
 
-      await api.post(
-        API_ROUTES.REFUNDS,
-        {
-          payment: payment.id,
-          amount: amount.toFixed(2),
-          method,
-          reason: form.reason.trim() || null,
-        }
-      );
+      await api.post(API_ROUTES.REFUNDS, {
+        payment: payment.id,
+        reservation: payment.reservation,
+        financial_account: payment.financial_account,
+        amount: refundAmount,
+        refund_date: new Date()
+          .toISOString()
+          .slice(0, 10),
+        method,
+        reason: reason.trim(),
+        reference: reference.trim(),
+      });
 
-      onSuccess();
-
+      onSuccess?.();
       onClose();
-
-    } catch (error) {
-
-      console.error(
-        "❌ [POST REFUND] Erreur backend :",
-        error
-      );
-
-      setError(
-        getErrorMessage(error)
-      );
-
+    } catch (submitError) {
+      setError(getBackendError(submitError));
     } finally {
-
       setLoading(false);
     }
   };
 
+  /* ============================================================
+     RENDER
+  ============================================================ */
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-
-      <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl">
-
-        {/* ==================================================
-            HEADER
-        ================================================== */}
-
+      <div className="w-full max-w-xl rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl">
+        {/* HEADER */}
         <div className="flex items-center justify-between border-b border-slate-700 px-6 py-4">
+          <div>
+            <h2 className="text-xl font-bold text-white">
+              Rembourser le paiement
+            </h2>
 
-          <div className="flex items-center gap-3">
-
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/10">
-
-              <RotateCcw className="h-5 w-5 text-amber-400" />
-
-            </div>
-
-            <div>
-
-              <h2 className="text-lg font-bold text-white">
-                Effectuer un remboursement
-              </h2>
-
-              <p className="text-sm text-slate-400">
-                {payment.reservation_number ||
-                  "Paiement sans réservation"}
-              </p>
-
-            </div>
-
+            <p className="mt-1 text-sm text-slate-400">
+              Le paiement restera dans l'historique.
+            </p>
           </div>
 
           <button
             type="button"
             onClick={onClose}
             disabled={loading}
-            className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-800 hover:text-white"
+            className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white"
           >
-            <X className="h-5 w-5" />
+            <X size={20} />
           </button>
-
         </div>
 
-        {/* ==================================================
-            CONTENU
-        ================================================== */}
+        <form onSubmit={handleSubmit} className="space-y-5 p-6">
+          {error && (
+            <div className="whitespace-pre-line rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
+              {error}
+            </div>
+          )}
 
-        <form
-          onSubmit={handleSubmit}
-          className="space-y-5 p-6"
-        >
+          {/* PAIEMENT */}
+          <div className="rounded-xl border border-slate-700 bg-slate-800/70 p-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <p className="text-xs text-slate-400">
+                  Paiement
+                </p>
 
-          {/* Client */}
+                <p className="mt-1 font-semibold text-white">
+                  #{payment.id}
+                </p>
+              </div>
 
-          <div className="rounded-xl border border-slate-700 bg-slate-950/50 p-4">
+              <div>
+                <p className="text-xs text-slate-400">
+                  Réservation
+                </p>
 
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              Client
-            </p>
+                <p className="mt-1 font-semibold text-white">
+                  {payment.reservation_number ||
+                    (payment.reservation
+                      ? `#${payment.reservation}`
+                      : "—")}
+                </p>
+              </div>
 
-            <p className="mt-1 font-semibold text-white">
-              {payment.client_name || "—"}
-            </p>
+              <div>
+                <p className="text-xs text-slate-400">
+                  Client
+                </p>
 
+                <p className="mt-1 font-semibold text-white">
+                  {payment.client_full_name ||
+                    payment.client_name ||
+                    "—"}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs text-slate-400">
+                  Paiement initial
+                </p>
+
+                <p className="mt-1 font-semibold text-white">
+                  {paymentAmount.toFixed(2)} $
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs text-slate-400">
+                  Déjà remboursé
+                </p>
+
+                <p className="mt-1 font-semibold text-orange-400">
+                  {alreadyRefunded.toFixed(2)} $
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs text-slate-400">
+                  Remboursable
+                </p>
+
+                <p className="mt-1 font-semibold text-green-400">
+                  {refundableAmount.toFixed(2)} $
+                </p>
+              </div>
+            </div>
           </div>
 
-          {/* Informations paiement */}
-
-          <div className="grid grid-cols-2 gap-3">
-
-            <div className="rounded-xl border border-slate-700 bg-slate-950/50 p-4">
-
-              <p className="text-xs text-slate-500">
-                Paiement initial
-              </p>
-
-              <p className="mt-1 text-lg font-bold text-white">
-                {paymentAmount.toLocaleString("fr-FR")} $
-              </p>
-
-            </div>
-
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
-
-              <p className="text-xs text-slate-500">
-                Maximum remboursable
-              </p>
-
-              <p className="mt-1 text-lg font-bold text-amber-400">
-                {maxRefundable.toLocaleString("fr-FR")} $
-              </p>
-
-            </div>
-
-          </div>
-
-          {/* Mode */}
-
+          {/* MONTANT */}
           <div>
-
             <label className="mb-2 block text-sm font-medium text-slate-300">
-              Mode de remboursement
-            </label>
-
-            <div className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-3">
-
-              <p className="font-medium text-white">
-                {methodLabel}
-              </p>
-
-              <p className="mt-1 text-xs text-slate-500">
-                Même mode que le paiement original
-              </p>
-
-            </div>
-
-          </div>
-
-          {/* Montant */}
-
-          <div>
-
-            <label
-              htmlFor="refund-amount"
-              className="mb-2 block text-sm font-medium text-slate-300"
-            >
               Montant à rembourser
             </label>
 
             <input
-              id="refund-amount"
               type="number"
               min="0.01"
-              max={maxRefundable}
+              max={refundableAmount}
               step="0.01"
-              value={form.amount}
-              onChange={(event) =>
-                setForm((previous) => ({
-                  ...previous,
-                  amount: event.target.value,
-                }))
-              }
-              disabled={loading}
+              value={amount}
+              onChange={(event) => {
+                setAmount(event.target.value);
+              }}
+              className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none focus:border-orange-500"
               required
-              className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none transition focus:border-amber-500"
-              placeholder="0.00"
             />
-
-            <p className="mt-1 text-xs text-slate-500">
-              Maximum autorisé :{" "}
-              {maxRefundable.toLocaleString("fr-FR")} $
-            </p>
-
           </div>
 
-          {/* Motif */}
-
+          {/* METHODE */}
           <div>
+            <label className="mb-2 block text-sm font-medium text-slate-300">
+              Méthode de remboursement
+            </label>
 
-            <label
-              htmlFor="refund-reason"
-              className="mb-2 block text-sm font-medium text-slate-300"
+            <select
+              value={method}
+              onChange={(event) => {
+                setMethod(event.target.value);
+              }}
+              className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none focus:border-orange-500"
             >
-              Motif du remboursement
+              <option value="ESPECES">Espèces</option>
+              <option value="VIREMENT">
+                Virement bancaire
+              </option>
+              <option value="MOBILE_MONEY">
+                Mobile Money
+              </option>
+            </select>
+          </div>
+
+          {/* REFERENCE */}
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-300">
+              Référence
+            </label>
+
+            <input
+              type="text"
+              value={reference}
+              onChange={(event) => {
+                setReference(event.target.value);
+              }}
+              placeholder="Référence du remboursement"
+              className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none focus:border-orange-500"
+            />
+          </div>
+
+          {/* MOTIF */}
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-300">
+              Motif
             </label>
 
             <textarea
-              id="refund-reason"
+              value={reason}
+              onChange={(event) => {
+                setReason(event.target.value);
+              }}
               rows={3}
-              value={form.reason}
-              onChange={(event) =>
-                setForm((previous) => ({
-                  ...previous,
-                  reason: event.target.value,
-                }))
-              }
-              disabled={loading}
-              className="w-full resize-none rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none transition focus:border-amber-500"
               placeholder="Motif du remboursement..."
+              className="w-full resize-none rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none focus:border-orange-500"
             />
-
           </div>
 
-          {/* Erreur */}
-
-          {error && (
-
-            <div className="flex items-start gap-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
-
-              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
-
-              <span>
-                {error}
-              </span>
-
-            </div>
-
-          )}
-
-          {/* Actions */}
-
+          {/* ACTIONS */}
           <div className="flex justify-end gap-3 border-t border-slate-700 pt-5">
-
             <button
               type="button"
               onClick={onClose}
               disabled={loading}
-              className="rounded-lg border border-slate-700 px-5 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-slate-800"
+              className="rounded-lg border border-slate-600 px-5 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800"
             >
               Annuler
             </button>
@@ -439,32 +406,22 @@ export default function RefundModal({
             <button
               type="submit"
               disabled={
-                loading ||
-                maxRefundable <= 0
+                loading || refundableAmount <= 0
               }
-              className="flex items-center gap-2 rounded-lg bg-amber-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex items-center rounded-lg bg-orange-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
-
-              {loading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Remboursement...
-                </>
-              ) : (
-                <>
-                  <RotateCcw className="h-4 w-4" />
-                  Rembourser
-                </>
+              {loading && (
+                <Loader2
+                  size={18}
+                  className="mr-2 animate-spin"
+                />
               )}
 
+              Confirmer le remboursement
             </button>
-
           </div>
-
         </form>
-
       </div>
-
     </div>
   );
 }

@@ -1,7 +1,14 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { Loader2, LockKeyhole, User } from "lucide-react";
+import {
+  FormEvent,
+  useState,
+} from "react";
+import {
+  Loader2,
+  LockKeyhole,
+  User,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import api from "@/lib/api";
@@ -12,94 +19,212 @@ interface LoginResponse {
   refresh?: string;
 }
 
+interface AxiosLikeError {
+  response?: {
+    status?: number;
+    data?: {
+      detail?: string;
+      [key: string]: unknown;
+    };
+  };
+  message?: string;
+}
+
+function getLoginErrorMessage(
+  error: unknown
+): string {
+  const axiosError =
+    error as AxiosLikeError;
+
+  const status =
+    axiosError.response?.status;
+
+  const detail =
+    axiosError.response?.data?.detail;
+
+  if (status === 401) {
+    return "Nom d'utilisateur ou mot de passe incorrect.";
+  }
+
+  if (
+    typeof detail === "string" &&
+    detail.trim()
+  ) {
+    return detail;
+  }
+
+  if (
+    status === 400
+  ) {
+    return "Les informations de connexion sont invalides.";
+  }
+
+  if (
+    status &&
+    status >= 500
+  ) {
+    return "Le serveur rencontre actuellement un problème. Vérifiez le backend Django.";
+  }
+
+  if (
+    axiosError.message ===
+    "Network Error"
+  ) {
+    return "Impossible de joindre le serveur Django. Vérifiez que le backend est démarré sur http://127.0.0.1:8000.";
+  }
+
+  return "Impossible de se connecter au serveur. Vérifiez que le backend Django est démarré.";
+}
+
 export default function LoginPage() {
   const router = useRouter();
 
-  const [credentials, setCredentials] = useState({
-    username: "",
-    password: "",
-  });
+  const [credentials, setCredentials] =
+    useState({
+      username: "",
+      password: "",
+    });
 
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [error, setError] =
+    useState<string | null>(null);
 
-  const handleSubmit = async (
-    e: FormEvent<HTMLFormElement>
-  ) => {
-    e.preventDefault();
+  const [loading, setLoading] =
+    useState(false);
+
+  function handleUsernameChange(
+    value: string
+  ) {
+    setCredentials((previous) => ({
+      ...previous,
+      username: value,
+    }));
+  }
+
+  function handlePasswordChange(
+    value: string
+  ) {
+    setCredentials((previous) => ({
+      ...previous,
+      password: value,
+    }));
+  }
+
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    if (loading) {
+      return;
+    }
 
     setError(null);
-    setLoading(true);
+
+    const username =
+      credentials.username.trim();
+
+    const password =
+      credentials.password;
+
+    if (!username) {
+      setError(
+        "Veuillez saisir votre nom d'utilisateur."
+      );
+      return;
+    }
+
+    if (!password) {
+      setError(
+        "Veuillez saisir votre mot de passe."
+      );
+      return;
+    }
 
     try {
-      const res = await api.post<LoginResponse>(
-        API_ROUTES.AUTH.LOGIN,
-        {
-          username: credentials.username.trim(),
-          password: credentials.password,
-        }
-      );
+      setLoading(true);
 
-      if (!res.data.access) {
+      const response =
+        await api.post<LoginResponse>(
+          API_ROUTES.AUTH.LOGIN,
+          {
+            username,
+            password,
+          }
+        );
+
+      const accessToken =
+        response.data?.access;
+
+      const refreshToken =
+        response.data?.refresh;
+
+      if (
+        !accessToken ||
+        typeof accessToken !== "string"
+      ) {
         setError(
           "Réponse du serveur invalide : jeton d'accès manquant."
         );
         return;
       }
 
-      localStorage.setItem(
-        "access_token",
-        res.data.access
+      /*
+       * Nettoyage de l'ancien token avant
+       * d'enregistrer le nouveau.
+       */
+      localStorage.removeItem(
+        "access_token"
       );
 
-      if (res.data.refresh) {
+      localStorage.removeItem(
+        "refresh_token"
+      );
+
+      localStorage.setItem(
+        "access_token",
+        accessToken
+      );
+
+      if (
+        refreshToken &&
+        typeof refreshToken === "string"
+      ) {
         localStorage.setItem(
           "refresh_token",
-          res.data.refresh
+          refreshToken
         );
       }
 
-      router.push("/dashboard");
+      /*
+       * On remplace la page de connexion
+       * dans l'historique du navigateur.
+       */
+      router.replace("/dashboard");
+
+      /*
+       * Demande à Next.js de rafraîchir
+       * les données de la nouvelle route.
+       */
       router.refresh();
-    } catch (err: unknown) {
-      console.error("Erreur de connexion :", err);
+    } catch (error: unknown) {
+      console.error(
+        "Erreur de connexion :",
+        error
+      );
 
-      const axiosError = err as {
-        response?: {
-          status?: number;
-          data?: {
-            detail?: string;
-          };
-        };
-      };
-
-      if (axiosError.response?.status === 401) {
-        setError(
-          "Nom d'utilisateur ou mot de passe incorrect."
-        );
-      } else if (
-        axiosError.response?.data?.detail
-      ) {
-        setError(
-          axiosError.response.data.detail
-        );
-      } else {
-        setError(
-          "Impossible de se connecter au serveur. Vérifiez que le backend Django est démarré."
-        );
-      }
+      setError(
+        getLoginErrorMessage(error)
+      );
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4 py-8 text-white">
-
       <div className="w-full max-w-md">
-
         <div className="rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
-
+          {/* EN-TÊTE */}
           <div className="mb-8 text-center">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-500/10 text-blue-400">
               <LockKeyhole className="h-7 w-7" />
@@ -114,16 +239,22 @@ export default function LoginPage() {
             </p>
           </div>
 
+          {/* ERREUR */}
           {error && (
-            <div className="mb-5 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300">
+            <div
+              role="alert"
+              className="mb-5 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300"
+            >
               {error}
             </div>
           )}
 
+          {/* FORMULAIRE */}
           <form
             onSubmit={handleSubmit}
             className="space-y-5"
           >
+            {/* NOM UTILISATEUR */}
             <div>
               <label
                 htmlFor="username"
@@ -137,23 +268,25 @@ export default function LoginPage() {
 
                 <input
                   id="username"
+                  name="username"
                   type="text"
                   required
                   autoComplete="username"
+                  autoFocus
                   disabled={loading}
                   value={credentials.username}
-                  onChange={(e) =>
-                    setCredentials({
-                      ...credentials,
-                      username: e.target.value,
-                    })
+                  onChange={(event) =>
+                    handleUsernameChange(
+                      event.target.value
+                    )
                   }
-                  className="w-full rounded-lg border border-slate-700 bg-slate-950 py-3 pl-11 pr-4 text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 py-3 pl-11 pr-4 text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
                   placeholder="Votre nom d'utilisateur"
                 />
               </div>
             </div>
 
+            {/* MOT DE PASSE */}
             <div>
               <label
                 htmlFor="password"
@@ -167,27 +300,28 @@ export default function LoginPage() {
 
                 <input
                   id="password"
+                  name="password"
                   type="password"
                   required
                   autoComplete="current-password"
                   disabled={loading}
                   value={credentials.password}
-                  onChange={(e) =>
-                    setCredentials({
-                      ...credentials,
-                      password: e.target.value,
-                    })
+                  onChange={(event) =>
+                    handlePasswordChange(
+                      event.target.value
+                    )
                   }
-                  className="w-full rounded-lg border border-slate-700 bg-slate-950 py-3 pl-11 pr-4 text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 py-3 pl-11 pr-4 text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
                   placeholder="Votre mot de passe"
                 />
               </div>
             </div>
 
+            {/* BOUTON */}
             <button
               type="submit"
               disabled={loading}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-3 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-3 font-semibold text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? (
                 <>
@@ -200,6 +334,7 @@ export default function LoginPage() {
             </button>
           </form>
 
+          {/* PIED */}
           <p className="mt-6 text-center text-xs text-slate-600">
             Application de gestion de salle de fêtes
           </p>
