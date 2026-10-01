@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+
 import {
   Activity,
   AlertCircle,
@@ -17,6 +24,8 @@ import {
   TrendingUp,
   Wallet,
   Banknote,
+  Filter,
+  RotateCcw,
 } from "lucide-react";
 
 import api from "@/lib/api";
@@ -49,19 +58,20 @@ interface FinancialAccount {
   id: number;
   name: string;
   account_type: string;
-  balance: number;
+  account_type_label?: string;
+  balance: number | string;
 }
 
 interface PaymentByMethod {
   method: string;
   label: string;
-  amount: number;
+  amount: number | string;
 }
 
 interface ExpenseByCategory {
   category: string;
   label: string;
-  amount: number;
+  amount: number | string;
 }
 
 interface ReservationByStatus {
@@ -72,19 +82,44 @@ interface ReservationByStatus {
 
 interface MonthlyItem {
   month: string;
-  amount: number;
+  amount: number | string;
+}
+
+interface DashboardFilters {
+  date: string | null;
+  jour: number | null;
+  mois: number | null;
+  annee: number | null;
+  date_debut: string | null;
+  date_fin: string | null;
 }
 
 interface DashboardData {
+  filters?: DashboardFilters;
+
   summary: Summary;
+
   accounts: FinancialAccount[];
+
   payments_by_method: PaymentByMethod[];
+
   expenses_by_category: ExpenseByCategory[];
+
   reservations_by_status: ReservationByStatus[];
+
   monthly: {
     revenues: MonthlyItem[];
     expenses: MonthlyItem[];
   };
+}
+
+interface FilterState {
+  date: string;
+  jour: string;
+  mois: string;
+  annee: string;
+  date_debut: string;
+  date_fin: string;
 }
 
 /* ============================================================
@@ -111,15 +146,38 @@ const EMPTY_SUMMARY: Summary = {
 };
 
 const EMPTY_DATA: DashboardData = {
+  filters: {
+    date: null,
+    jour: null,
+    mois: null,
+    annee: null,
+    date_debut: null,
+    date_fin: null,
+  },
+
   summary: EMPTY_SUMMARY,
+
   accounts: [],
+
   payments_by_method: [],
+
   expenses_by_category: [],
+
   reservations_by_status: [],
+
   monthly: {
     revenues: [],
     expenses: [],
   },
+};
+
+const EMPTY_FILTERS: FilterState = {
+  date: "",
+  jour: "",
+  mois: "",
+  annee: "",
+  date_debut: "",
+  date_fin: "",
 };
 
 /* ============================================================
@@ -158,17 +216,25 @@ function formatMonth(value?: string): string {
   }).format(date);
 }
 
-function translateAccountType(value?: string): string {
+function translateAccountType(
+  value?: string
+): string {
   const values: Record<string, string> = {
     CAISSE: "Caisse",
     BANQUE: "Banque",
     MOBILE_MONEY: "Mobile Money",
   };
 
-  return values[value ?? ""] ?? value ?? "Compte";
+  return (
+    values[value ?? ""] ??
+    value ??
+    "Compte"
+  );
 }
 
-function getStatusClass(status?: string): string {
+function getStatusClass(
+  status?: string
+): string {
   switch (status) {
     case "CONFIRMEE":
     case "VALIDE":
@@ -196,6 +262,118 @@ function getStatusClass(status?: string): string {
 }
 
 /* ============================================================
+   EXTRACTION ERREUR API
+============================================================ */
+
+function getApiErrorMessage(
+  error: unknown
+): string {
+  const axiosError = error as {
+    response?: {
+      status?: number;
+      data?: unknown;
+    };
+    message?: string;
+  };
+
+  const status =
+    axiosError.response?.status;
+
+  const responseData =
+    axiosError.response?.data;
+
+  if (responseData instanceof Blob) {
+    return `Erreur serveur (${status ?? "inconnue"}).`;
+  }
+
+  if (
+    typeof responseData === "object" &&
+    responseData !== null
+  ) {
+    const data =
+      responseData as Record<
+        string,
+        unknown
+      >;
+
+    if (
+      typeof data.detail === "string"
+    ) {
+      return data.detail;
+    }
+
+    if (
+      typeof data.error === "string"
+    ) {
+      return data.error;
+    }
+
+    if (
+      typeof data.message === "string"
+    ) {
+      return data.message;
+    }
+
+    try {
+      return JSON.stringify(data);
+    } catch {
+      return `Erreur serveur (${status ?? "inconnue"}).`;
+    }
+  }
+
+  if (
+    typeof responseData === "string" &&
+    responseData.trim()
+  ) {
+    return responseData;
+  }
+
+  if (
+    typeof axiosError.message === "string"
+  ) {
+    return axiosError.message;
+  }
+
+  return `Erreur serveur (${status ?? "inconnue"}).`;
+}
+
+/* ============================================================
+   CONSTRUCTION DES PARAMÈTRES
+============================================================ */
+
+function buildFilterParams(
+  filters: FilterState
+): Record<string, string> {
+  const params: Record<string, string> = {};
+
+  if (filters.date.trim()) {
+    params.date = filters.date;
+  }
+
+  if (filters.jour.trim()) {
+    params.jour = filters.jour;
+  }
+
+  if (filters.mois.trim()) {
+    params.mois = filters.mois;
+  }
+
+  if (filters.annee.trim()) {
+    params.annee = filters.annee;
+  }
+
+  if (filters.date_debut.trim()) {
+    params.date_debut = filters.date_debut;
+  }
+
+  if (filters.date_fin.trim()) {
+    params.date_fin = filters.date_fin;
+  }
+
+  return params;
+}
+
+/* ============================================================
    PAGE DASHBOARD
 ============================================================ */
 
@@ -203,192 +381,346 @@ export default function DashboardPage() {
   const [data, setData] =
     useState<DashboardData>(EMPTY_DATA);
 
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
+  const [filters, setFilters] =
+    useState<FilterState>(EMPTY_FILTERS);
+
+  const [appliedFilters, setAppliedFilters] =
+    useState<FilterState>(EMPTY_FILTERS);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [refreshing, setRefreshing] =
+    useState(false);
+
+  const [exporting, setExporting] =
+    useState<"excel" | "pdf" | null>(null);
+
+  const [error, setError] =
+    useState("");
 
   /* ==========================================================
-     CHARGEMENT
+     MODIFICATION FILTRE
   ========================================================== */
 
-  const loadDashboard = useCallback(async () => {
-    try {
-      setError("");
+  const updateFilter = (
+    field: keyof FilterState,
+    value: string
+  ) => {
+    setFilters((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  };
 
-      const response = await api.get(
-        API_ROUTES.DASHBOARD
-      );
+  /* ==========================================================
+     CHARGEMENT DASHBOARD
+  ========================================================== */
 
-      const payload = response.data;
+  const loadDashboard = useCallback(
+    async (filterValues: FilterState) => {
+      try {
+        setError("");
 
-      setData({
-        summary: {
-          ...EMPTY_SUMMARY,
-          ...(payload?.summary ?? {}),
-        },
+        const params =
+          buildFilterParams(
+            filterValues
+          );
 
-        accounts: Array.isArray(payload?.accounts)
-          ? payload.accounts
-          : [],
+        const response =
+          await api.get(
+            API_ROUTES.DASHBOARD,
+            {
+              params,
+            }
+          );
 
-        payments_by_method: Array.isArray(
-          payload?.payments_by_method
-        )
-          ? payload.payments_by_method
-          : [],
+        const payload =
+          response.data;
 
-        expenses_by_category: Array.isArray(
-          payload?.expenses_by_category
-        )
-          ? payload.expenses_by_category
-          : [],
+        setData({
+          filters:
+            payload?.filters ??
+            EMPTY_DATA.filters,
 
-        reservations_by_status: Array.isArray(
-          payload?.reservations_by_status
-        )
-          ? payload.reservations_by_status
-          : [],
+          summary: {
+            ...EMPTY_SUMMARY,
+            ...(payload?.summary ?? {}),
+          },
 
-        monthly: {
-          revenues: Array.isArray(
-            payload?.monthly?.revenues
-          )
-            ? payload.monthly.revenues
-            : [],
+          accounts:
+            Array.isArray(
+              payload?.accounts
+            )
+              ? payload.accounts
+              : [],
 
-          expenses: Array.isArray(
-            payload?.monthly?.expenses
-          )
-            ? payload.monthly.expenses
-            : [],
-        },
-      });
-    } catch (err) {
-      console.error(
-        "Erreur chargement dashboard :",
-        err
-      );
+          payments_by_method:
+            Array.isArray(
+              payload?.payments_by_method
+            )
+              ? payload.payments_by_method
+              : [],
 
-      setError(
-        "Impossible de récupérer les données du tableau de bord."
-      );
+          expenses_by_category:
+            Array.isArray(
+              payload?.expenses_by_category
+            )
+              ? payload.expenses_by_category
+              : [],
 
-      setData(EMPTY_DATA);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+          reservations_by_status:
+            Array.isArray(
+              payload?.reservations_by_status
+            )
+              ? payload.reservations_by_status
+              : [],
+
+          monthly: {
+            revenues:
+              Array.isArray(
+                payload?.monthly?.revenues
+              )
+                ? payload.monthly.revenues
+                : [],
+
+            expenses:
+              Array.isArray(
+                payload?.monthly?.expenses
+              )
+                ? payload.monthly.expenses
+                : [],
+          },
+        });
+      } catch (err) {
+        console.error(
+          "Erreur chargement dashboard :",
+          err
+        );
+
+        setError(
+          getApiErrorMessage(err)
+        );
+
+        setData(EMPTY_DATA);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
-    void loadDashboard();
+    void loadDashboard(
+      EMPTY_FILTERS
+    );
   }, [loadDashboard]);
+
+  /* ==========================================================
+     APPLIQUER LES FILTRES
+  ========================================================== */
+
+  const applyFilters = async () => {
+    if (
+      filters.jour &&
+      (
+        Number(filters.jour) < 1 ||
+        Number(filters.jour) > 31
+      )
+    ) {
+      setError(
+        "Le jour doit être compris entre 1 et 31."
+      );
+      return;
+    }
+
+    if (
+      filters.mois &&
+      (
+        Number(filters.mois) < 1 ||
+        Number(filters.mois) > 12
+      )
+    ) {
+      setError(
+        "Le mois doit être compris entre 1 et 12."
+      );
+      return;
+    }
+
+    if (
+      filters.annee &&
+      (
+        Number(filters.annee) < 2000 ||
+        Number(filters.annee) > 2100
+      )
+    ) {
+      setError(
+        "L'année saisie est invalide."
+      );
+      return;
+    }
+
+    if (
+      filters.date_debut &&
+      filters.date_fin &&
+      filters.date_debut >
+        filters.date_fin
+    ) {
+      setError(
+        "La date de début doit être antérieure ou égale à la date de fin."
+      );
+      return;
+    }
+
+    setError("");
+
+    setAppliedFilters({
+      ...filters,
+    });
+
+    setRefreshing(true);
+
+    await loadDashboard(filters);
+  };
+
+  /* ==========================================================
+     RÉINITIALISER LES FILTRES
+  ========================================================== */
+
+  const resetFilters = async () => {
+    setFilters({
+      ...EMPTY_FILTERS,
+    });
+
+    setAppliedFilters({
+      ...EMPTY_FILTERS,
+    });
+
+    setRefreshing(true);
+
+    await loadDashboard(
+      EMPTY_FILTERS
+    );
+  };
 
   /* ==========================================================
      ACTUALISATION
   ========================================================== */
 
-  const refreshDashboard = async () => {
-    setRefreshing(true);
-    await loadDashboard();
-  };
+  const refreshDashboard =
+    async () => {
+      setRefreshing(true);
+
+      await loadDashboard(
+        appliedFilters
+      );
+    };
 
   /* ==========================================================
      SOLDE TOTAL
   ========================================================== */
 
-  const totalBalance = useMemo(() => {
-    return data.accounts.reduce(
-      (total, account) =>
-        total + Number(account.balance ?? 0),
-      0
-    );
-  }, [data.accounts]);
+  const totalBalance =
+    useMemo(() => {
+      return data.accounts.reduce(
+        (total, account) =>
+          total +
+          Number(
+            account.balance ?? 0
+          ),
+        0
+      );
+    }, [data.accounts]);
 
   /* ==========================================================
-     EXPORTS
+     EXPORT EXCEL / PDF
   ========================================================== */
 
-  const exportFile = (
+  const exportFile = async (
     type: "excel" | "pdf"
   ) => {
-    const baseUrl =
-      process.env.NEXT_PUBLIC_API_URL ??
-      "http://127.0.0.1:8000/api";
+    try {
+      setError("");
+      setExporting(type);
 
-    const route =
-      type === "excel"
-        ? "/dashboard/export/excel/"
-        : "/dashboard/export/pdf/";
+      const route =
+        type === "excel"
+          ? API_ROUTES.DASHBOARD_EXCEL
+          : API_ROUTES.DASHBOARD_PDF;
 
-    const token =
-      typeof window !== "undefined"
-        ? localStorage.getItem("access_token")
-        : null;
+      const params =
+        buildFilterParams(
+          appliedFilters
+        );
 
-    const url = `${baseUrl}${route}`;
-
-    /*
-     * window.open ne permet pas d'envoyer simplement
-     * le Bearer Authorization.
-     *
-     * On utilise donc un téléchargement via fetch
-     * avec le token JWT.
-     */
-    void (async () => {
-      try {
-        const response = await fetch(url, {
-          method: "GET",
-          headers: token
-            ? {
-                Authorization: `Bearer ${token}`,
-              }
-            : {},
+      const response =
+        await api.get(route, {
+          params,
+          responseType: "blob",
         });
 
-        if (!response.ok) {
-          throw new Error(
-            `Erreur export ${response.status}`
-          );
-        }
+      const blob =
+        response.data;
 
-        const blob = await response.blob();
-
-        const blobUrl =
-          window.URL.createObjectURL(blob);
-
-        const link =
-          document.createElement("a");
-
-        link.href = blobUrl;
-
-        link.download =
-          type === "excel"
-            ? "rapport-elisabeth.xlsx"
-            : "rapport-elisabeth.pdf";
-
-        document.body.appendChild(link);
-
-        link.click();
-
-        link.remove();
-
-        window.URL.revokeObjectURL(blobUrl);
-      } catch (err) {
-        console.error(
-          "Erreur téléchargement rapport :",
-          err
-        );
-
-        setError(
-          "Impossible de télécharger le rapport."
+      if (!(blob instanceof Blob)) {
+        throw new Error(
+          "Le serveur n'a pas retourné un fichier valide."
         );
       }
-    })();
+
+      if (blob.size === 0) {
+        throw new Error(
+          "Le fichier généré par le serveur est vide."
+        );
+      }
+
+      const blobUrl =
+        window.URL.createObjectURL(
+          blob
+        );
+
+      const link =
+        document.createElement("a");
+
+      link.href = blobUrl;
+
+      link.download =
+        type === "excel"
+          ? "rapport-elisabeth.xlsx"
+          : "rapport-elisabeth.pdf";
+
+      document.body.appendChild(
+        link
+      );
+
+      link.click();
+
+      link.remove();
+
+      window.URL.revokeObjectURL(
+        blobUrl
+      );
+    } catch (err) {
+      console.error(
+        `Erreur export ${type} :`,
+        err
+      );
+
+      setError(
+        `Impossible de télécharger le ${
+          type === "excel"
+            ? "fichier Excel"
+            : "fichier PDF"
+        }. ${getApiErrorMessage(err)}`
+      );
+    } finally {
+      setExporting(null);
+    }
   };
 
   /* ==========================================================
-     CHARGEMENT
+     CHARGEMENT INITIAL
   ========================================================== */
 
   if (loading) {
@@ -436,27 +768,51 @@ export default function DashboardPage() {
 
             <button
               type="button"
-              onClick={() => exportFile("excel")}
-              className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm font-medium text-emerald-400 transition hover:bg-emerald-500/20"
+              onClick={() =>
+                void exportFile("excel")
+              }
+              disabled={
+                exporting !== null
+              }
+              className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm font-medium text-emerald-400 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <FileSpreadsheet className="h-4 w-4" />
+              {exporting === "excel" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="h-4 w-4" />
+              )}
 
-              Télécharger Excel
+              {exporting === "excel"
+                ? "Génération..."
+                : "Télécharger Excel"}
             </button>
 
             <button
               type="button"
-              onClick={() => exportFile("pdf")}
-              className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm font-medium text-red-400 transition hover:bg-red-500/20"
+              onClick={() =>
+                void exportFile("pdf")
+              }
+              disabled={
+                exporting !== null
+              }
+              className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm font-medium text-red-400 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <FileText className="h-4 w-4" />
+              {exporting === "pdf" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FileText className="h-4 w-4" />
+              )}
 
-              Télécharger PDF
+              {exporting === "pdf"
+                ? "Génération..."
+                : "Télécharger PDF"}
             </button>
 
             <button
               type="button"
-              onClick={refreshDashboard}
+              onClick={() =>
+                void refreshDashboard()
+              }
               disabled={refreshing}
               className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:bg-slate-800 disabled:opacity-50"
             >
@@ -475,12 +831,245 @@ export default function DashboardPage() {
         </section>
 
         {/* ==================================================
+            FILTRES
+        ================================================== */}
+
+        <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl">
+
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg bg-blue-500/10 p-2 text-blue-400">
+                <Filter className="h-5 w-5" />
+              </div>
+
+              <div>
+                <h2 className="text-lg font-semibold">
+                  Filtres du tableau de bord
+                </h2>
+
+                <p className="text-sm text-slate-400">
+                  Filtrez les réservations, paiements, dépenses, remboursements et mouvements.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                void resetFilters()
+              }
+              disabled={refreshing}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300 transition hover:bg-slate-800 disabled:opacity-50"
+            >
+              <RotateCcw className="h-4 w-4" />
+
+              Réinitialiser
+            </button>
+
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+
+            {/* DATE EXACTE */}
+
+            <FilterField label="Date exacte">
+              <input
+                type="date"
+                value={filters.date}
+                onChange={(event) =>
+                  updateFilter(
+                    "date",
+                    event.target.value
+                  )
+                }
+                className="dashboard-input"
+              />
+            </FilterField>
+
+            {/* JOUR */}
+
+            <FilterField label="Jour">
+              <input
+                type="number"
+                min="1"
+                max="31"
+                placeholder="Ex. 15"
+                value={filters.jour}
+                onChange={(event) =>
+                  updateFilter(
+                    "jour",
+                    event.target.value
+                  )
+                }
+                className="dashboard-input"
+              />
+            </FilterField>
+
+            {/* MOIS */}
+
+            <FilterField label="Mois">
+              <select
+                value={filters.mois}
+                onChange={(event) =>
+                  updateFilter(
+                    "mois",
+                    event.target.value
+                  )
+                }
+                className="dashboard-input"
+              >
+                <option value="">
+                  Tous les mois
+                </option>
+
+                <option value="1">
+                  Janvier
+                </option>
+
+                <option value="2">
+                  Février
+                </option>
+
+                <option value="3">
+                  Mars
+                </option>
+
+                <option value="4">
+                  Avril
+                </option>
+
+                <option value="5">
+                  Mai
+                </option>
+
+                <option value="6">
+                  Juin
+                </option>
+
+                <option value="7">
+                  Juillet
+                </option>
+
+                <option value="8">
+                  Août
+                </option>
+
+                <option value="9">
+                  Septembre
+                </option>
+
+                <option value="10">
+                  Octobre
+                </option>
+
+                <option value="11">
+                  Novembre
+                </option>
+
+                <option value="12">
+                  Décembre
+                </option>
+              </select>
+            </FilterField>
+
+            {/* ANNÉE */}
+
+            <FilterField label="Année">
+              <input
+                type="number"
+                min="2000"
+                max="2100"
+                placeholder="Ex. 2026"
+                value={filters.annee}
+                onChange={(event) =>
+                  updateFilter(
+                    "annee",
+                    event.target.value
+                  )
+                }
+                className="dashboard-input"
+              />
+            </FilterField>
+
+            {/* DATE DÉBUT */}
+
+            <FilterField label="Date de début">
+              <input
+                type="date"
+                value={
+                  filters.date_debut
+                }
+                onChange={(event) =>
+                  updateFilter(
+                    "date_debut",
+                    event.target.value
+                  )
+                }
+                className="dashboard-input"
+              />
+            </FilterField>
+
+            {/* DATE FIN */}
+
+            <FilterField label="Date de fin">
+              <input
+                type="date"
+                value={
+                  filters.date_fin
+                }
+                onChange={(event) =>
+                  updateFilter(
+                    "date_fin",
+                    event.target.value
+                  )
+                }
+                className="dashboard-input"
+              />
+            </FilterField>
+
+          </div>
+
+          <div className="mt-5 flex flex-col gap-3 border-t border-slate-800 pt-5 sm:flex-row sm:items-center sm:justify-between">
+
+            <div className="text-xs text-slate-500">
+              {Object.values(appliedFilters).some(
+                (value) =>
+                  value !== ""
+              )
+                ? "Filtres actuellement appliqués."
+                : "Aucun filtre appliqué : toutes les données sont affichées."}
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                void applyFilters()
+              }
+              disabled={refreshing}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {refreshing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Filter className="h-4 w-4" />
+              )}
+
+              {refreshing
+                ? "Application..."
+                : "Appliquer les filtres"}
+            </button>
+
+          </div>
+        </section>
+
+        {/* ==================================================
             ERREUR
         ================================================== */}
 
         {error && (
-          <div className="flex items-center gap-3 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-red-300">
-            <AlertCircle className="h-5 w-5 shrink-0" />
+          <div className="flex items-start gap-3 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-red-300">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
 
             <p className="text-sm">
               {error}
@@ -496,7 +1085,9 @@ export default function DashboardPage() {
 
           <DashboardCard
             title="Réservations"
-            value={summary.total_reservations}
+            value={
+              summary.total_reservations
+            }
             description={`${summary.reservations_actives} active(s)`}
             icon={
               <CalendarDays className="h-5 w-5" />
@@ -546,7 +1137,9 @@ export default function DashboardPage() {
 
           <FinancialCard
             title="Chiffre d'affaires"
-            value={summary.chiffre_affaires}
+            value={
+              summary.chiffre_affaires
+            }
             icon={
               <TrendingUp className="h-5 w-5" />
             }
@@ -554,7 +1147,9 @@ export default function DashboardPage() {
 
           <FinancialCard
             title="Reste à recouvrer"
-            value={summary.reste_a_recouvrer}
+            value={
+              summary.reste_a_recouvrer
+            }
             icon={
               <CreditCard className="h-5 w-5" />
             }
@@ -562,7 +1157,9 @@ export default function DashboardPage() {
 
           <FinancialCard
             title="Résultat net"
-            value={summary.resultat_net}
+            value={
+              summary.resultat_net
+            }
             icon={
               <Activity className="h-5 w-5" />
             }
@@ -628,30 +1225,25 @@ export default function DashboardPage() {
 
               {data.accounts.map(
                 (account) => {
-
                   const accountType =
                     account.account_type;
 
                   const icon =
-                    accountType === "BANQUE"
-                      ? (
-                        <Banknote className="h-5 w-5" />
-                      )
-                      : accountType ===
-                        "MOBILE_MONEY"
-                      ? (
-                        <Smartphone className="h-5 w-5" />
-                      )
-                      : (
-                        <Wallet className="h-5 w-5" />
-                      );
+                    accountType ===
+                    "BANQUE" ? (
+                      <Banknote className="h-5 w-5" />
+                    ) : accountType ===
+                      "MOBILE_MONEY" ? (
+                      <Smartphone className="h-5 w-5" />
+                    ) : (
+                      <Wallet className="h-5 w-5" />
+                    );
 
                   return (
                     <div
                       key={account.id}
                       className="rounded-2xl border border-slate-800 bg-slate-900 p-5"
                     >
-
                       <div className="flex items-start justify-between">
 
                         <div className="flex items-center gap-3">
@@ -666,9 +1258,10 @@ export default function DashboardPage() {
                             </p>
 
                             <p className="text-xs text-slate-500">
-                              {translateAccountType(
-                                accountType
-                              )}
+                              {account.account_type_label ??
+                                translateAccountType(
+                                  accountType
+                                )}
                             </p>
                           </div>
 
@@ -709,13 +1302,17 @@ export default function DashboardPage() {
 
           <ChartCard
             title="Encaissements mensuels"
-            data={data.monthly.revenues}
+            data={
+              data.monthly.revenues
+            }
             type="revenue"
           />
 
           <ChartCard
             title="Dépenses mensuelles"
-            data={data.monthly.expenses}
+            data={
+              data.monthly.expenses
+            }
             type="expense"
           />
 
@@ -735,14 +1332,12 @@ export default function DashboardPage() {
             }
             emptyText="Aucun paiement validé."
           >
-
             {data.payments_by_method.map(
               (item) => (
                 <div
                   key={item.method}
                   className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/60 p-4"
                 >
-
                   <div>
                     <p className="font-medium">
                       {item.label}
@@ -759,11 +1354,9 @@ export default function DashboardPage() {
                     )}{" "}
                     $
                   </p>
-
                 </div>
               )
             )}
-
           </DataListCard>
 
           <DataListCard
@@ -774,14 +1367,12 @@ export default function DashboardPage() {
             }
             emptyText="Aucune dépense enregistrée."
           >
-
             {data.expenses_by_category.map(
               (item) => (
                 <div
                   key={item.category}
                   className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/60 p-4"
                 >
-
                   <div>
                     <p className="font-medium">
                       {item.label}
@@ -798,11 +1389,9 @@ export default function DashboardPage() {
                     )}{" "}
                     $
                   </p>
-
                 </div>
               )
             )}
-
           </DataListCard>
 
         </section>
@@ -833,7 +1422,9 @@ export default function DashboardPage() {
 
             <MovementCard
               title="Total entrées"
-              value={summary.total_entrees}
+              value={
+                summary.total_entrees
+              }
               income
               icon={
                 <ArrowUpCircle className="h-5 w-5" />
@@ -842,7 +1433,9 @@ export default function DashboardPage() {
 
             <MovementCard
               title="Total sorties"
-              value={summary.total_sorties}
+              value={
+                summary.total_sorties
+              }
               icon={
                 <ArrowDownCircle className="h-5 w-5" />
               }
@@ -850,7 +1443,9 @@ export default function DashboardPage() {
 
             <MovementCard
               title="Remboursements"
-              value={summary.total_rembourse}
+              value={
+                summary.total_rembourse
+              }
               icon={
                 <CreditCard className="h-5 w-5" />
               }
@@ -880,22 +1475,30 @@ export default function DashboardPage() {
 
             <MiniStat
               label="Réservations"
-              value={summary.total_reservations}
+              value={
+                summary.total_reservations
+              }
             />
 
             <MiniStat
               label="Actives"
-              value={summary.reservations_actives}
+              value={
+                summary.reservations_actives
+              }
             />
 
             <MiniStat
               label="Annulées"
-              value={summary.reservations_annulees}
+              value={
+                summary.reservations_annulees
+              }
             />
 
             <MiniStat
               label="Terminées"
-              value={summary.reservations_terminees}
+              value={
+                summary.reservations_terminees
+              }
             />
 
           </div>
@@ -904,6 +1507,28 @@ export default function DashboardPage() {
 
       </div>
     </main>
+  );
+}
+
+/* ============================================================
+   COMPOSANT FILTRE
+============================================================ */
+
+function FilterField({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <label className="mb-2 block text-sm font-medium text-slate-300">
+        {label}
+      </label>
+
+      {children}
+    </div>
   );
 }
 
@@ -920,11 +1545,10 @@ function DashboardCard({
   title: string;
   value: string | number;
   description: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
 }) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
-
       <div className="flex items-start justify-between">
 
         <div>
@@ -946,7 +1570,6 @@ function DashboardCard({
       <p className="mt-4 text-xs text-slate-500">
         {description}
       </p>
-
     </div>
   );
 }
@@ -958,7 +1581,7 @@ function FinancialCard({
 }: {
   title: string;
   value: number;
-  icon: React.ReactNode;
+  icon: ReactNode;
 }) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
@@ -1025,7 +1648,7 @@ function MovementCard({
 }: {
   title: string;
   value: number;
-  icon: React.ReactNode;
+  icon: ReactNode;
   income?: boolean;
 }) {
   return (
@@ -1096,9 +1719,9 @@ function DataListCard({
 }: {
   title: string;
   description: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   emptyText: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   const hasChildren =
     Array.isArray(children)
@@ -1147,7 +1770,8 @@ function ChartCard({
 }) {
   const maxValue = Math.max(
     ...data.map(
-      (item) => Number(item.amount ?? 0)
+      (item) =>
+        Number(item.amount ?? 0)
     ),
     1
   );
@@ -1171,7 +1795,6 @@ function ChartCard({
         <div className="flex h-64 items-end gap-3 overflow-x-auto">
 
           {data.map((item) => {
-
             const value =
               Number(item.amount ?? 0);
 
@@ -1202,7 +1825,9 @@ function ChartCard({
                 />
 
                 <span className="max-w-[75px] truncate text-[11px] text-slate-500">
-                  {formatMonth(item.month)}
+                  {formatMonth(
+                    item.month
+                  )}
                 </span>
 
               </div>

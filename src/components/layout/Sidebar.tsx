@@ -19,11 +19,7 @@ const links = [
     href: "/reservations",
     icon: "📋",
   },
-  {
-    label: "Événements",
-    href: "/evenements",
-    icon: "🎉",
-  },
+  
   {
     label: "Clients",
     href: "/clients",

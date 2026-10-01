@@ -510,9 +510,30 @@ export default function PaymentModal({
           idempotencyKey,
       };
 
-      await api.post(
+      const paymentResponse = await api.post(
         API_ROUTES.PAYMENTS,
         payload,
+      );
+
+      const paymentId = Number(
+        paymentResponse.data?.id,
+      );
+
+      if (!paymentId) {
+        throw new Error(
+          "Le paiement a été créé mais son identifiant est introuvable. La validation automatique ne peut pas être effectuée.",
+        );
+      }
+
+      /*
+       * Le bouton "Payer" doit effectuer réellement le paiement :
+       * création du paiement en attente, puis validation financière.
+       */
+      const paymentsBaseUrl =
+        API_ROUTES.PAYMENTS.replace(/\/+$/, "");
+
+      await api.post(
+        `${paymentsBaseUrl}/${paymentId}/valider/`,
       );
 
       onSuccess?.();

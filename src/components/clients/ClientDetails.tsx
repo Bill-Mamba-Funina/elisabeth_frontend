@@ -3,17 +3,19 @@
 interface Client {
   id?: number | string;
   full_name: string;
-  phone?: string;
-  email?: string;
-  address?: string;
-  notes?: string;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  notes?: string | null;
+}
+
+interface ClientDetailsProps {
+  client: Client;
 }
 
 export default function ClientDetails({
   client,
-}: {
-  client: Client;
-}) {
+}: ClientDetailsProps) {
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
       <h2 className="text-xl font-bold text-white">
@@ -27,7 +29,7 @@ export default function ClientDetails({
           </p>
 
           <p className="font-medium text-white">
-            {client.full_name}
+            {client.full_name || "-"}
           </p>
         </div>
 
@@ -74,3 +76,4 @@ export default function ClientDetails({
     </div>
   );
 }
+

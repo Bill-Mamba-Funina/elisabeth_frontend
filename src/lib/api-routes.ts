@@ -3,24 +3,11 @@
  * ROUTES API
  * ============================================================
  *
- * IMPORTANT :
- *
  * api.ts possède déjà :
  *
  * baseURL = http://127.0.0.1:8000/api
  *
- * Les routes ci-dessous NE doivent donc PAS commencer par /api.
- *
- * Exemple :
- *
- * API_ROUTES.RESERVATIONS
- *        ↓
- * /reservations/
- *
- * Axios construit automatiquement :
- *
- * http://127.0.0.1:8000/api/reservations/
- *
+ * Les routes ci-dessous ne commencent donc PAS par /api.
  * ============================================================
  */
 
@@ -33,7 +20,7 @@ export const API_ROUTES = {
 
   AUTH: {
     LOGIN: `${API_BASE_PATH}/auth/token/`,
-    REFRESH: `${API_BASE_PATH}/auth/token/refresh/`,
+    REFRESH: `${API_BASE_PATH}/auth/refresh/`,
   },
 
   /* ==========================================================
@@ -43,10 +30,10 @@ export const API_ROUTES = {
   DASHBOARD: `${API_BASE_PATH}/dashboard/`,
 
   DASHBOARD_EXCEL:
-    `${API_BASE_PATH}/dashboard/export/excel/`,
+    `${API_BASE_PATH}/dashboard/excel/`,
 
   DASHBOARD_PDF:
-    `${API_BASE_PATH}/dashboard/export/pdf/`,
+    `${API_BASE_PATH}/dashboard/pdf/`,
 
   /* ==========================================================
      CLIENTS
@@ -82,22 +69,19 @@ export const API_ROUTES = {
      RESERVATIONS
      ========================================================== */
 
-  RESERVATIONS:
-    `${API_BASE_PATH}/reservations/`,
+  RESERVATIONS: `${API_BASE_PATH}/reservations/`,
 
   /* ==========================================================
      CALENDRIER
      ========================================================== */
 
-  CALENDAR:
-    `${API_BASE_PATH}/calendar/`,
+  CALENDAR: `${API_BASE_PATH}/calendar/`,
 
   /* ==========================================================
      TARIFS
      ========================================================== */
 
-  TARIFS:
-    `${API_BASE_PATH}/tarifs/`,
+  TARIFS: `${API_BASE_PATH}/tarifs/`,
 
   /* ==========================================================
      COMPTES FINANCIERS
@@ -110,15 +94,13 @@ export const API_ROUTES = {
      PAIEMENTS
      ========================================================== */
 
-  PAYMENTS:
-    `${API_BASE_PATH}/payments/`,
+  PAYMENTS: `${API_BASE_PATH}/payments/`,
 
   /* ==========================================================
      REMBOURSEMENTS
      ========================================================== */
 
-  REFUNDS:
-    `${API_BASE_PATH}/refunds/`,
+  REFUNDS: `${API_BASE_PATH}/refunds/`,
 
   /* ==========================================================
      MOUVEMENTS DE CAISSE
@@ -131,15 +113,13 @@ export const API_ROUTES = {
      DEPENSES
      ========================================================== */
 
-  EXPENSES:
-    `${API_BASE_PATH}/expenses/`,
+  EXPENSES: `${API_BASE_PATH}/expenses/`,
 
   /* ==========================================================
      CONTRATS
      ========================================================== */
 
-  CONTRACTS:
-    `${API_BASE_PATH}/contracts/`,
+  CONTRACTS: `${API_BASE_PATH}/contracts/`,
 
   /* ==========================================================
      NOTIFICATIONS
@@ -149,116 +129,105 @@ export const API_ROUTES = {
     `${API_BASE_PATH}/notifications/`,
 } as const;
 
-
 /* ============================================================
    HELPER : URL DETAIL REST
    ============================================================ */
 
-/**
- * Construit l'URL d'un élément REST.
- *
- * Exemple :
- *
- * getApiDetailUrl(API_ROUTES.PAYMENTS, 15)
- *
- * donne :
- *
- * /payments/15/
- *
- * Axios transformera automatiquement cela en :
- *
- * http://127.0.0.1:8000/api/payments/15/
- */
-
 export function getApiDetailUrl(
   route: string,
-  id: number | string
+  id: number | string,
 ): string {
-  return `${route}${id}/`;
-}
+  const cleanRoute = route.replace(/\/+$/, "");
 
+  return `${cleanRoute}/${encodeURIComponent(String(id))}/`;
+}
 
 /* ============================================================
    PAIEMENT : VALIDATION
    ============================================================ */
 
-/**
- * Exemple :
- *
- * /payments/15/valider/
- */
-
 export function getPaymentValidateUrl(
-  paymentId: number | string
+  paymentId: number | string,
 ): string {
-  return `${API_ROUTES.PAYMENTS}${paymentId}/valider/`;
+  return (
+    getApiDetailUrl(
+      API_ROUTES.PAYMENTS,
+      paymentId,
+    ) + "valider/"
+  );
 }
-
 
 /* ============================================================
    PAIEMENT : ANNULATION
    ============================================================ */
 
-/**
- * Exemple :
- *
- * /payments/15/annuler/
- */
-
 export function getPaymentCancelUrl(
-  paymentId: number | string
+  paymentId: number | string,
 ): string {
-  return `${API_ROUTES.PAYMENTS}${paymentId}/annuler/`;
+  return (
+    getApiDetailUrl(
+      API_ROUTES.PAYMENTS,
+      paymentId,
+    ) + "annuler/"
+  );
 }
-
 
 /* ============================================================
    PAIEMENT : REÇU PDF
    ============================================================ */
 
-/**
- * Exemple :
- *
- * /payments/15/recu/
- */
-
 export function getPaymentReceiptUrl(
-  paymentId: number | string
+  paymentId: number | string,
 ): string {
-  return `${API_ROUTES.PAYMENTS}${paymentId}/recu/`;
+  return (
+    getApiDetailUrl(
+      API_ROUTES.PAYMENTS,
+      paymentId,
+    ) + "recu/"
+  );
 }
-
 
 /* ============================================================
    REMBOURSEMENT : VALIDATION
    ============================================================ */
 
-/**
- * À utiliser si Django possède :
- *
- * POST /api/refunds/<id>/valider/
- */
-
 export function getRefundValidateUrl(
-  refundId: number | string
+  refundId: number | string,
 ): string {
-  return `${API_ROUTES.REFUNDS}${refundId}/valider/`;
+  return (
+    getApiDetailUrl(
+      API_ROUTES.REFUNDS,
+      refundId,
+    ) + "valider/"
+  );
 }
-
 
 /* ============================================================
    REMBOURSEMENT : ANNULATION
    ============================================================ */
 
-/**
- * À utiliser si Django possède :
- *
- * POST /api/refunds/<id>/annuler/
- */
-
 export function getRefundCancelUrl(
-  refundId: number | string
+  refundId: number | string,
 ): string {
-  return `${API_ROUTES.REFUNDS}${refundId}/annuler/`;
+  return (
+    getApiDetailUrl(
+      API_ROUTES.REFUNDS,
+      refundId,
+    ) + "annuler/"
+  );
 }
 
+/* ============================================================
+   REMBOURSEMENT : REÇU PDF
+   ============================================================ */
+
+export function getRefundReceiptUrl(
+  refundId: number | string,
+): string {
+  return (
+    getApiDetailUrl(
+      API_ROUTES.REFUNDS,
+      refundId,
+    ) + "recu/"
+  );
+}
